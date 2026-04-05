@@ -11,7 +11,10 @@ import {
   Plus,
   Edit2,
   FolderOpen,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
+import { listDirectory } from '../../../core/api/file';
 
 type Tool = 'select' | 'draw';
 
@@ -24,14 +27,56 @@ interface AnnotationItem {
   height: number;
 }
 
+interface ImageFile {
+  name: string;
+  path: string;
+}
+
 export default function AnnotationPage() {
+  const { currentProject } = useWorkspaceStore();
   const [tool, setTool] = useState<Tool>('select');
   const [currentImage, setCurrentImage] = useState(0);
-  const [totalImages] = useState(0);
+  const [images, setImages] = useState<ImageFile[]>([]);
   const [annotations, setAnnotations] = useState<AnnotationItem[]>([]);
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
   const [showUnlabeled, setShowUnlabeled] = useState(false);
   const [zoom, setZoom] = useState(100);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Auto-load images from project config on mount
+  useEffect(() => {
+    const loadImages = async () => {
+      if (!currentProject) return;
+
+      setIsLoading(true);
+      setError(null);
+
+      const imagePath = `${currentProject.path}/images/train`;
+      const result = await listDirectory(imagePath);
+
+      if (!result.success || !result.data) {
+        // Try val folder if train folder doesn't exist
+        const valPath = `${currentProject.path}/images/val`;
+        const valResult = await listDirectory(valPath);
+        if (!valResult.success || !valResult.data) {
+          setError('无法加载图片文件夹');
+          setIsLoading(false);
+          return;
+        }
+        const valImages = valResult.data.filter((f) => !f.is_dir && /\.(jpg|jpeg|png)$/i.test(f.name));
+        setImages(valImages.map((f) => ({ name: f.name, path: f.path })));
+        setIsLoading(false);
+        return;
+      }
+
+      const imageFiles = result.data.filter((f) => !f.is_dir && /\.(jpg|jpeg|png)$/i.test(f.name));
+      setImages(imageFiles.map((f) => ({ name: f.name, path: f.path })));
+      setIsLoading(false);
+    };
+
+    loadImages();
+  }, [currentProject]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -54,7 +99,7 @@ export default function AnnotationPage() {
           }
           break;
         case 'd':
-          if (currentImage < totalImages - 1) {
+          if (currentImage < images.length - 1) {
             setCurrentImage((prev) => prev + 1);
           }
           break;
@@ -73,11 +118,14 @@ export default function AnnotationPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentImage, totalImages, selectedAnnotation]);
+  }, [currentImage, images.length, selectedAnnotation]);
 
-  const handleOpenFolder = useCallback(async () => {
-    // TODO: Implement with Tauri dialog API
-  }, []);
+  // Classes from project config
+  const classes = currentProject?.classes.map((name, idx) => ({
+    id: idx,
+    name,
+    color: `var(--accent-primary)`, // TODO: Map to distinct colors
+  })) || [];
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedAnnotation) {
@@ -85,13 +133,6 @@ export default function AnnotationPage() {
       setSelectedAnnotation(null);
     }
   }, [selectedAnnotation]);
-
-  const classes = [
-    { id: 0, name: 'person', color: 'var(--status-success)' },
-    { id: 1, name: 'car', color: 'var(--accent-primary)' },
-    { id: 2, name: 'dog', color: 'var(--status-warning)' },
-    { id: 3, name: 'cat', color: 'var(--accent-secondary)' },
-  ];
 
   return (
     <div className="annotation-canvas" style={{ height: '100%' }}>
@@ -138,7 +179,7 @@ export default function AnnotationPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)' }}>
               <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
-                进度: {currentImage}/{totalImages} ({totalImages > 0 ? ((currentImage / totalImages) * 100).toFixed(1) : 0}%)
+                进度: {currentImage}/{images.length} ({images.length > 0 ? ((currentImage / images.length) * 100).toFixed(1) : 0}%)
               </span>
               <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
                 图片: {annotations.length}
@@ -165,10 +206,11 @@ export default function AnnotationPage() {
               />
               未标注筛选
             </label>
-            <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: 13 }} onClick={handleOpenFolder}>
-              <FolderOpen size={14} />
-              打开目录
-            </button>
+            {currentProject && (
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                数据集: {currentProject.path}/images/train
+              </span>
+            )}
           </div>
         </div>
 
@@ -206,28 +248,95 @@ export default function AnnotationPage() {
 
           {/* Main Canvas */}
           <div className="annotation-main">
-            <div
-              style={{
-                width: '80%',
-                height: '80%',
-                background: 'var(--bg-surface)',
-                border: '2px dashed var(--border-default)',
-                borderRadius: 'var(--radius-lg)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexDirection: 'column',
-                gap: 'var(--spacing-md)',
-              }}
-            >
-              <FolderOpen size={48} style={{ color: 'var(--text-tertiary)' }} />
-              <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>
-                点击「打开目录」加载图片
-              </p>
-              <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                或拖拽图片到此处
-              </p>
-            </div>
+            {isLoading ? (
+              <div
+                style={{
+                  width: '80%',
+                  height: '80%',
+                  background: 'var(--bg-surface)',
+                  border: '2px dashed var(--border-default)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-md)',
+                }}
+              >
+                <div style={{
+                  width: 40,
+                  height: 40,
+                  border: '3px solid var(--border-default)',
+                  borderTopColor: 'var(--accent-primary)',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                }} />
+                <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>加载图片中...</p>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            ) : error ? (
+              <div
+                style={{
+                  width: '80%',
+                  height: '80%',
+                  background: 'var(--bg-surface)',
+                  border: '2px dashed var(--border-default)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-md)',
+                }}
+              >
+                <FolderOpen size={48} style={{ color: 'var(--status-error)' }} />
+                <p style={{ color: 'var(--status-error)', fontSize: 14 }}>{error}</p>
+                <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  请确保项目包含 images/train 或 images/val 文件夹
+                </p>
+              </div>
+            ) : images.length === 0 ? (
+              <div
+                style={{
+                  width: '80%',
+                  height: '80%',
+                  background: 'var(--bg-surface)',
+                  border: '2px dashed var(--border-default)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-md)',
+                }}
+              >
+                <ImageIcon size={48} style={{ color: 'var(--text-tertiary)' }} />
+                <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>
+                  未找到图片文件
+                </p>
+                <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+                  请将图片放入 images/train 文件夹
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 'var(--spacing-md)',
+                  color: 'var(--text-tertiary)',
+                }}
+              >
+                <ImageIcon size={64} />
+                <p style={{ fontSize: 14 }}>
+                  {images[currentImage]?.name || '无图片'}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Right Panel - Class Management */}
