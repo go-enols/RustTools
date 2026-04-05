@@ -1,11 +1,12 @@
 /* Hub Page - 模块选择首页 */
 .hub-page {
-  min-height: calc(100vh - 32px);
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 48px 32px;
+  padding-top: calc(32px + 48px);
   background: var(--bg-primary);
 }
 

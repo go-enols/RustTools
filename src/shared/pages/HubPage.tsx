@@ -54,9 +54,9 @@ export default function HubPage() {
           <div className="hub-logo-icon">
             <Sparkles size={32} />
           </div>
-          <h1 className="hub-logo-text">YOLO-Flow</h1>
+          <h1 className="hub-logo-text">Rust-Tools</h1>
         </div>
-        <p className="hub-subtitle">模块化 AI 工作流平台</p>
+        <p className="hub-subtitle">Rust编写的高性能工具箱</p>
       </div>
 
       {/* Module Grid - 居中展示 */}

@@ -26,6 +26,7 @@ export async function selectFolder(title: string, defaultPath?: string): Promise
   }
 }
 
+
 /**
  * Open file selection dialog
  */

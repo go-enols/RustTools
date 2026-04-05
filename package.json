@@ -19,12 +19,16 @@
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
+    "@types/prismjs": "^1.26.6",
     "@xyflow/react": "^12.10.2",
     "clsx": "^2.1.1",
     "echarts": "^6.0.0",
     "lucide-react": "^1.7.0",
+    "prismjs": "^1.30.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-simple-code-editor": "^0.14.1",
+    "react-syntax-highlighter": "^16.1.1",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -32,6 +36,7 @@
     "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.27",
     "postcss": "^8.5.8",

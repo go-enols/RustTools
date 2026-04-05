@@ -14,6 +14,20 @@ export type * from './types';
 // Common (dialogs, file operations)
 export { selectFolder, selectFile, selectFiles, getAppVersion, checkForUpdates } from './common';
 
+// File operations
+export {
+  readTextFile,
+  readBinaryFile,
+  writeTextFile,
+  deleteFile,
+  renamePath,
+  createDirectory,
+  deleteDirectory,
+  listDirectory,
+  copyFile,
+  pathExists,
+} from './file';
+
 // Project management
 export { createProject, openProject, getRecentProjects, saveProject } from './project';
 
