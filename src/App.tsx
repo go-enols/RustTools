@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import AppShell from './core/components/layout/AppShell';
 import TitleBar from './core/components/layout/TitleBar';
 import HubPage from './shared/pages/HubPage';
+import ToastContainer from './shared/components/ui/ToastContainer';
 import NewProjectModal from './modules/yolo/components/NewProjectModal';
 import HelpModal, { HelpType } from './modules/yolo/components/HelpModal';
 import AnnotationPage from './modules/yolo/pages/AnnotationPage';
@@ -129,6 +130,7 @@ export default function App() {
             onCreated={handleProjectCreated}
           />
         )}
+        <ToastContainer />
       </>
     );
   }
@@ -164,6 +166,7 @@ export default function App() {
       {helpType && (
         <HelpModal type={helpType} onClose={() => setHelpType(null)} />
       )}
+      <ToastContainer />
     </>
   );
 }

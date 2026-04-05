@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouterStore, moduleRegistry } from '../../modules';
 import { useWorkspaceStore } from '../../core/stores/workspaceStore';
+import { useToast } from '../../shared/hooks/useToast';
 import YoloGuideModal from '../../modules/yolo/components/YoloGuideModal';
 import NewProjectModal from '../../modules/yolo/components/NewProjectModal';
 import { Lock, Sparkles, ArrowRight } from 'lucide-react';
@@ -9,6 +10,7 @@ export default function HubPage() {
   const modules = moduleRegistry.getAllModules();
   const { navigateToModule } = useRouterStore();
   const { currentProject, selectProjectPath, openProjectFromPath } = useWorkspaceStore();
+  const { error: showError } = useToast();
   const [showYoloGuide, setShowYoloGuide] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
 
@@ -20,15 +22,19 @@ export default function HubPage() {
         setShowYoloGuide(true);
       }
     } else {
-      console.warn(`模块 ${moduleId} 暂未开放`);
+      showError(`模块 ${moduleId} 暂未开放`);
     }
   };
 
   const handleOpenProject = async () => {
     const path = await selectProjectPath();
     if (path) {
-      await openProjectFromPath(path);
-      navigateToModule('yolo');
+      const success = await openProjectFromPath(path);
+      if (success) {
+        navigateToModule('yolo');
+      } else {
+        showError('打开项目失败，请确保选择的是有效的 YOLO 项目文件夹');
+      }
     }
   };
 

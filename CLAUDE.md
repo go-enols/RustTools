@@ -2,247 +2,57 @@
 
 ## 开发语言
 
+# MyRustTools 开发规范（Agent 指南）
+
+## 开发语言
+
 **所有开发对话必须使用中文**
 
 ---
 
-## 源代码目录结构
+## 架构文档位置（重要）
 
-### 目录规范
-
-#### 前端目录 (src/)
-
-```
-src/
-├── main.tsx                          # 应用入口
-├── App.tsx                           # 根组件
-│
-├── core/                             # 【核心基础设施】- 模块不可修改
-│   ├── api/                          # API 调用层（模块化）
-│   │   ├── index.ts                  # 统一导出（barrel file）
-│   │   ├── types.ts                  # 共享类型定义
-│   │   ├── common.ts                 # 通用功能（文件对话框、版本检查等）
-│   │   ├── project.ts               # 项目管理 API
-│   │   ├── dataset.ts               # 数据集管理 API
-│   │   ├── annotation.ts            # 标注功能 API
-│   │   ├── training.ts               # 训练功能 API
-│   │   ├── model.ts                 # 模型管理 API
-│   │   ├── device.ts                # 设备管理 API
-│   │   ├── video.ts                 # 视频处理 API
-│   │   └── settings.ts              # 设置管理 API
-│   ├── components/
-│   │   └── layout/                  # 通用布局组件
-│   │       ├── TitleBar.tsx         # 自定义标题栏
-│   │       └── AppShell.tsx         # 应用外壳（接收 sidebar 和 children 作为 props）
-│   ├── stores/                       # 全局状态
-│   │   ├── routerStore.ts
-│   │   ├── workspaceStore.ts
-│   │   ├── trainingStore.ts
-│   │   └── settingsStore.ts
-│   └── styles/
-│       ├── index.css                # 全局样式
-│       └── hub.css                  # Hub 页面样式
-│
-├── modules/                          # 【模块系统】
-│   ├── types.ts                      # 模块类型定义
-│   ├── registry.ts                   # 模块注册中心
-│   │
-│   ├── hub/                          # Hub 首页模块
-│   │   └── HubPage.tsx
-│   │
-│   ├── yolo/                         # YOLO 检测模块
-│   │   ├── index.ts                  # 模块入口（注册）
-│   │   ├── manifest.ts               # 模块清单
-│   │   ├── pages/
-│   │   │   ├── AnnotationPage.tsx
-│   │   │   ├── TrainingPage.tsx
-│   │   │   ├── ResultsPage.tsx
-│   │   │   ├── VideoPage.tsx
-│   │   │   └── DevicePage.tsx
-│   │   └── components/
-│   │       ├── layout/               # YOLO 专用布局
-│   │       │   ├── ActivityBar.tsx  # 左侧活动栏
-│   │       │   ├── Sidebar.tsx      # 侧边栏
-│   │       │   └── StatusBar.tsx    # 底部状态栏
-│   │       ├── NewProjectModal.tsx  # 新建项目弹窗（YOLO 专用）
-│   │       ├── HelpModal.tsx        # 帮助弹窗（YOLO 专用）
-│   │       ├── TrainingPanel.tsx
-│   │       ├── ModelConvertModal.tsx
-│   │       └── ...
-│   │
-│   ├── crawler/                      # 【未来】爬虫管理模块
-│   └── rpa/                          # 【未来】RPA 模块
-│
-└── shared/                           # 【共享组件】
-    └── components/
-        ├── ui/
-        │   ├── Button.tsx
-        │   └── Modal.tsx
-        └── pages/
-            └── HubPage.tsx
-```
-
-#### 后端目录 (src-tauri/src/)
-
-```
-src-tauri/src/
-├── main.rs                           # 应用入口
-├── lib.rs                            # 库入口，模块导出
-│
-├── core/                             # 【核心基础设施】
-│   ├── commands/                     # Tauri 命令
-│   │   ├── mod.rs
-│   │   ├── file_commands.rs         # 文件操作命令
-│   │   └── system_commands.rs       # 系统命令
-│   ├── models/                       # 数据模型
-│   │   ├── mod.rs
-│   │   ├── error.rs                 # 错误类型
-│   │   └── response.rs              # API 响应格式
-│   └── services/                     # 公共服务
-│       ├── mod.rs
-│       └── logger.rs                 # 日志服务
-│
-├── modules/                          # 【模块系统】
-│   │
-│   ├── yolo/                         # YOLO 检测模块
-│   │   ├── mod.rs                    # 模块入口
-│   │   ├── commands/                 # 模块命令
-│   │   │   ├── mod.rs
-│   │   │   ├── train.rs             # 训练命令
-│   │   │   ├── detect.rs            # 推理命令
-│   │   │   └── export.rs             # 导出命令
-│   │   ├── services/                 # 模块服务
-│   │   │   ├── mod.rs
-│   │   │   ├── trainer.rs            # 训练服务
-│   │   │   └── detector.rs           # 检测服务
-│   │   └── models/                    # 模块模型
-│   │       ├── mod.rs
-│   │       └── config.rs             # YOLO 配置
-│   │
-│   ├── crawler/                      # 【未来】爬虫管理模块
-│   └── rpa/                          # 【未来】RPA 模块
-│
-└── shared/                           # 【共享模块】
-    └── utils/
-        ├── mod.rs
-        └── path.rs                    # 路径工具
-```
-
-### 目录原则
-
-| 目录       | 原则                       |
-| ---------- | -------------------------- |
-| `core/`    | 核心代码，模块只读不可修改 |
-| `modules/` | 每个模块独立文件夹，自包含 |
-| `shared/`  | 多模块共用的 UI 组件       |
-
-#### 后端目录原则
-
-| 目录       | 原则                                          |
-| ---------- | --------------------------------------------- |
-| `core/`    | 基础设施，命令、模型、服务                    |
-| `modules/` | 每个模块独立，自包含 commands/services/models |
-| `shared/`  | 跨模块共享的工具函数                          |
-
-### 文件命名规范
-
-- 组件文件：`PascalCase.tsx`（如 `TitleBar.tsx`）
-- 工具/工具函数：`camelCase.ts`（如 `api.ts`）
-- 模块清单：`manifest.ts`
-- 样式文件：`kebab-case.css`
-
-#### Rust 文件命名
-
-- 模块文件：`mod.rs`（模块入口）或 `模块名.rs`
-- 命令文件：`xxx_commands.rs`
-- 服务文件：`xxx_service.rs`
-- 模型文件：`xxx.rs`（如 `config.rs`）
-
-### 新增文件规则
-
-1. **新模块开发**
-   - 在 `modules/` 下创建模块文件夹
-   - 模块内页面放入 `pages/`
-   - 模块内共享组件放入 `components/`
-   - 在模块 `index.ts` 中注册
-
-2. **共享组件开发**
-   - 放入 `shared/components/` 对应分类
-   - 如组件仅被一个模块使用，应放入该模块的 `components/` 下
-
-3. **核心修改**
-   - `core/` 目录代码不可随意修改
-   - 如需修改核心功能，先讨论
-
-#### 后端新增规则
-
-1. **新模块开发**
-   - 在 `modules/` 下创建模块文件夹
-   - 模块内命令放入 `commands/`
-   - 模块内服务放入 `services/`
-   - 模块内模型放入 `models/`
-   - 在模块 `mod.rs` 中导出所有子模块
-
-2. **新增命令**
-   - 放入对应模块的 `commands/` 目录
-   - 使用 `#[tauri::command]` 标记
-   - 返回 `Result<T, String>` 或使用自定义错误类型
-
-3. **公共服务**
-   - 放入 `core/services/`
-   - 如被多个模块使用，标记为 `pub(crate)`
+- 项目的详细架构说明（模块结构、接口规范、状态管理、约束与演进路线）已移至仓库根的 `README.md`。
+- 请将 `README.md` 作为“事实性”架构来源（Source of Truth），不要在 `CLAUDE.md` 中重复完整架构说明。
 
 ---
 
-## 文档管理
+## 给 agent 的操作指南（何时做、如何做）
 
-### 目录结构
-
-```
-doc/
-├── 0-index.md              # 模块清单索引（追踪所有模块状态）
-├── 进行中/                  # 正在开发的功能
-│   └── {序号}-{功能名}-{日期}.md
-├── 已完成/
-│   ├── 已完成项目/          # 已完成但不再活跃维护
-│   └── 正在维护/            # 已完成且正在维护
-└── 归档/                   # 成熟稳定，不再需要维护
-```
-
-### 文档命名规范
-
-```bash
-{序号}-{功能名}-{日期}.md
-# 示例: 01-模块化架构设计-20260405.md
-```
-
-### 索引文件 (0-index.md)
-
-```markdown
-# 模块清单
-
-| 模块         | 状态     | 负责人 | 最后更新   |
-| ------------ | -------- | ------ | ---------- |
-| 自定义标题栏 | 正在维护 | Claude | 2026-04-05 |
-| 模块化架构   | 进行中   | Claude | 2026-04-05 |
-```
-
-### 文档更新规则
-
-| 时机             | 操作                           |
-| ---------------- | ------------------------------ |
-| 开始开发前       | 阅读 `doc/进行中/` 相关文档    |
-| 完成一个子任务   | 更新进度百分比                 |
-| 功能正式完成     | 将文档移动到 `已完成/正在维护` |
-| 功能稳定不再维护 | 将文档移动到 `归档`            |
+- 任务规划：任何多步骤任务必须先使用 `manage_todo_list` 创建并维护 TODO 列表。
+- 编辑代码：使用 `apply_patch`（遵循 repo 的 applyPatchInstructions）对文件做修改；每次改动后运行相关测试并调用 `code-reviewer` 进行审查。
+- 模块开发：新增模块需在 `modules/<name>/manifest.ts` 定义清单，并在模块入口注册（`moduleRegistry.register()`）。不要直接修改 `core/`。
+- 后端命令：在 `src-tauri/src/modules/<mod>/commands/` 添加命令，使用 `#[tauri::command]` 并返回 `Result<T, String>`。
+- 测试优先：采用 TDD（使用 `tdd-guide`）；模块需要单元测试、集成测试，关键流程需要 E2E 测试，目标覆盖率为 80%。
+- 代码审查：完成实现后调用 `code-reviewer`，安全/敏感变更同时调用 `security-reviewer`。
+- 构建与运行：前端开发先运行 `npm run dev`（或 `pnpm dev`），如需启动 Tauri 调试请运行 `npm run tauri dev`（或等价命令）。
+- 构建失败：遇到构建/编译失败，请调用相应的构建解析 agent（如 `rust-build-resolver`、`cpp-build-resolver` 等）。
+- 文档要求：任何新功能必须先在 `doc/进行中/` 创建文档并在 `doc/0-index.md` 注册条目。
+- 验证与发布：修改完成后优先运行受影响模块的测试并手动验证关键交互（路由、项目创建、训练命令等）。
 
 ---
 
-## 开发流程
+## 快速参考（文件与命名）
 
-1. **开始新功能前**
-   - 阅读 `doc/进行中/` 下相关文档
-   - 确认当前进度和待办事项
+- `core/`：只读，核心基础设施，禁止日常修改。
+- `modules/`：模块实现，包含 `manifest.ts`、`pages/`、`components/` 等。
+- `shared/`：跨模块共享工具与组件。
+- 前端组件：`PascalCase.tsx`；工具函数：`camelCase.ts`。
+- 后端模块入口：`mod.rs`；命令文件采用 `snake_case`。
+
+---
+
+## 变更流程要点
+
+- 进行重大结构变更前，先在 `doc/` 提交变更提案并获得团队确认。
+- 所有敏感改动必须走安全审查和回滚计划。
+
+---
+
+如需查看完整架构细节，请打开仓库根的 `README.md`。
+
+- 阅读 `doc/进行中/` 下相关文档
+- 确认当前进度和待办事项
 
 2. **开发过程中**
    - 每完成一个功能点，更新文档进度
