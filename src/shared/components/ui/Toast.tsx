@@ -11,23 +11,23 @@ interface ToastProps {
 
 const typeStyles: Record<ToastType, { bg: string; border: string; icon: string }> = {
   info: {
-    bg: 'var(--toast-info-bg, #3b82f6)',
-    border: 'var(--toast-info-border, #60a5fa)',
+    bg: 'var(--toast-info-bg)',
+    border: 'var(--toast-info-border)',
     icon: 'ℹ️',
   },
   success: {
-    bg: 'var(--toast-success-bg, #22c55e)',
-    border: 'var(--toast-success-border, #4ade80)',
+    bg: 'var(--toast-success-bg)',
+    border: 'var(--toast-success-border)',
     icon: '✓',
   },
   warning: {
-    bg: 'var(--toast-warning-bg, #f59e0b)',
-    border: 'var(--toast-warning-border, #fbbf24)',
+    bg: 'var(--toast-warning-bg)',
+    border: 'var(--toast-warning-border)',
     icon: '⚠',
   },
   error: {
-    bg: 'var(--toast-error-bg, #ef4444)',
-    border: 'var(--toast-error-border, #f87171)',
+    bg: 'var(--toast-error-bg)',
+    border: 'var(--toast-error-border)',
     icon: '✕',
   },
 };
@@ -69,7 +69,7 @@ export default function Toast({ id, message, type, duration, onClose }: ToastPro
         background: style.bg,
         borderRadius: 8,
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-        color: '#fff',
+        color: 'var(--text-primary)',
         fontSize: 14,
         lineHeight: 1.4,
         overflow: 'hidden',
@@ -110,7 +110,7 @@ export default function Toast({ id, message, type, duration, onClose }: ToastPro
           border: 'none',
           background: 'rgba(255,255,255,0.2)',
           borderRadius: 4,
-          color: '#fff',
+          color: 'var(--text-primary)',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',

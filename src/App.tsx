@@ -63,6 +63,10 @@ export default function App() {
 
   const handleOpenFile = (fileName: string, filePath: string) => {
     setOpenFile({ name: fileName, path: filePath });
+    // 切换到 yolo 首页显示文件内容
+    if (activePage !== 'yolo') {
+      navigateToPage('yolo');
+    }
   };
 
   const handleProjectCreated = () => {

@@ -50,8 +50,8 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           animation: modalFadeIn 0.15s ease-out;
         }
         .modal-content {
-          background: var(--bg-elevated, #1e1e1e);
-          border: 1px solid var(--border-default, #333);
+          background: var(--bg-elevated);
+          border: 1px solid var(--border-default);
           border-radius: 12px;
           min-width: 360px;
           max-width: 480px;
@@ -63,20 +63,20 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           align-items: center;
           justify-content: space-between;
           padding: 16px 20px;
-          border-bottom: 1px solid var(--border-default, #333);
+          border-bottom: 1px solid var(--border-default);
         }
         .modal-title {
           margin: 0;
           font-size: 16px;
           font-weight: 600;
-          color: var(--text-primary, #fff);
+          color: var(--text-primary);
         }
         .modal-close {
           background: none;
           border: none;
           padding: 4px;
           cursor: pointer;
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
           border-radius: 4px;
           display: flex;
           align-items: center;
@@ -84,8 +84,8 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           transition: all 0.15s;
         }
         .modal-close:hover {
-          background: var(--bg-hover, #2a2a2a);
-          color: var(--text-primary, #fff);
+          background: var(--bg-hover);
+          color: var(--text-primary);
         }
         .modal-body {
           padding: 20px;
@@ -95,7 +95,7 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           justify-content: flex-end;
           gap: 12px;
           padding: 16px 20px;
-          border-top: 1px solid var(--border-default, #333);
+          border-top: 1px solid var(--border-default);
         }
         @keyframes modalFadeIn {
           from { opacity: 0; }
@@ -167,25 +167,25 @@ export function InputModal({ isOpen, onClose, onConfirm, title, label, placehold
         }
         .input-label {
           font-size: 13px;
-          color: var(--text-secondary, #888);
+          color: var(--text-secondary);
         }
         .input-field {
           width: 100%;
           padding: 10px 12px;
           font-size: 14px;
-          color: var(--text-primary, #fff);
-          background: var(--bg-input, #0d0d0d);
-          border: 1px solid var(--border-default, #333);
+          color: var(--text-primary);
+          background: var(--bg-input);
+          border: 1px solid var(--border-default);
           border-radius: 6px;
           outline: none;
           transition: border-color 0.15s;
           box-sizing: border-box;
         }
         .input-field:focus {
-          border-color: var(--accent-primary, #3b82f6);
+          border-color: var(--accent-primary);
         }
         .input-field::placeholder {
-          color: var(--text-tertiary, #555);
+          color: var(--text-tertiary);
         }
         .btn {
           padding: 8px 16px;
@@ -197,23 +197,23 @@ export function InputModal({ isOpen, onClose, onConfirm, title, label, placehold
           border: none;
         }
         .btn-primary {
-          background: var(--accent-primary, #3b82f6);
-          color: #fff;
+          background: var(--accent-primary);
+          color: var(--text-primary);
         }
         .btn-primary:hover:not(:disabled) {
-          background: var(--accent-primary-hover, #2563eb);
+          background: var(--accent-hover);
         }
         .btn-primary:disabled {
           opacity: 0.5;
           cursor: not-allowed;
         }
         .btn-secondary {
-          background: var(--bg-hover, #2a2a2a);
-          color: var(--text-primary, #fff);
-          border: 1px solid var(--border-default, #333);
+          background: var(--bg-hover);
+          color: var(--text-primary);
+          border: 1px solid var(--border-default);
         }
         .btn-secondary:hover {
-          background: var(--bg-active, #333);
+          background: var(--bg-active);
         }
       `}</style>
     </Modal>
@@ -242,9 +242,9 @@ export function ConfirmModal({
   variant = 'danger',
 }: ConfirmModalProps) {
   const variantStyles = {
-    danger: { bg: 'var(--accent-danger, #ef4444)', hover: 'var(--accent-danger-hover, #dc2626)' },
-    warning: { bg: 'var(--accent-warning, #f59e0b)', hover: 'var(--accent-warning-hover, #d97706)' },
-    info: { bg: 'var(--accent-primary, #3b82f6)', hover: 'var(--accent-primary-hover, #2563eb)' },
+    danger: { bg: 'var(--status-error)', hover: 'var(--accent-hover)' },
+    warning: { bg: 'var(--status-warning)', hover: 'var(--accent-hover)' },
+    info: { bg: 'var(--status-info)', hover: 'var(--accent-hover)' },
   };
 
   const style = variantStyles[variant];
@@ -266,11 +266,11 @@ export function ConfirmModal({
         .confirm-message {
           margin: 0;
           font-size: 14px;
-          color: var(--text-primary, #fff);
+          color: var(--text-primary);
           line-height: 1.5;
         }
         .btn-danger:hover {
-          background: ${style.hover} !important;
+          background: var(--accent-hover) !important;
         }
       `}</style>
     </Modal>
