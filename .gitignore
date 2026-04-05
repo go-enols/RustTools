@@ -1,0 +1,69 @@
+# ====================
+# 依赖目录
+# ====================
+node_modules/
+.pnp/
+.pnp.js
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# ====================
+# Rust 构建产物
+# ====================
+src-tauri/target/
+Cargo.lock
+.cargo/
+
+# ====================
+# 前端构建输出
+# ====================
+dist/
+dist-ssr/
+*.local
+
+# ====================
+# IDE 和编辑器
+# ====================
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ====================
+# 日志和临时文件
+# ====================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ====================
+# 环境变量
+# ====================
+.env
+.env.local
+.env.*.local
+
+# ====================
+# Vite
+# ====================
+.vite/
+
+# ====================
+# 测试覆盖率
+# ====================
+coverage/
+*.lcov
+
+# ====================
+# 缓存
+# ====================
+.cache/
+.parcel-cache/
+.eslintcache
