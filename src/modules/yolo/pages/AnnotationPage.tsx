@@ -14,7 +14,7 @@ import {
   Image as ImageIcon,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
-import { listDirectory } from '../../../core/api/file';
+import { listDirectory, readBinaryFile } from '../../../core/api/file';
 
 type Tool = 'select' | 'draw';
 
@@ -43,6 +43,8 @@ export default function AnnotationPage() {
   const [zoom, setZoom] = useState(100);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentImageData, setCurrentImageData] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
 
   // Auto-load images from project config on mount
   useEffect(() => {
@@ -52,15 +54,18 @@ export default function AnnotationPage() {
       setIsLoading(true);
       setError(null);
 
-      const imagePath = `${currentProject.path}/images/train`;
-      const result = await listDirectory(imagePath);
+      // Use path from project config
+      const trainPath = `${currentProject.path}/${currentProject.images.train}`;
+      const valPath = `${currentProject.path}/${currentProject.images.val}`;
+
+      // Try train folder first
+      const result = await listDirectory(trainPath);
 
       if (!result.success || !result.data) {
         // Try val folder if train folder doesn't exist
-        const valPath = `${currentProject.path}/images/val`;
         const valResult = await listDirectory(valPath);
         if (!valResult.success || !valResult.data) {
-          setError('无法加载图片文件夹');
+          setError(`加载失败: ${result.error || valResult.error || '目录不存在'}`);
           setIsLoading(false);
           return;
         }
@@ -77,6 +82,32 @@ export default function AnnotationPage() {
 
     loadImages();
   }, [currentProject]);
+
+  // Load image data when current image changes
+  useEffect(() => {
+    const loadImageData = async () => {
+      if (images.length === 0 || !images[currentImage]) {
+        setCurrentImageData(null);
+        return;
+      }
+
+      setImageLoading(true);
+      const img = images[currentImage];
+      const result = await readBinaryFile(img.path);
+
+      if (result.success && result.data) {
+        // Determine MIME type from file extension
+        const ext = img.name.toLowerCase().split('.').pop();
+        const mimeType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/gif';
+        setCurrentImageData(`data:${mimeType};base64,${result.data}`);
+      } else {
+        setCurrentImageData(null);
+      }
+      setImageLoading(false);
+    };
+
+    loadImageData();
+  }, [currentImage, images]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -208,7 +239,7 @@ export default function AnnotationPage() {
             </label>
             {currentProject && (
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                数据集: {currentProject.path}/images/train
+                数据集: {currentProject.images.train}
               </span>
             )}
           </div>
@@ -331,10 +362,37 @@ export default function AnnotationPage() {
                   color: 'var(--text-tertiary)',
                 }}
               >
-                <ImageIcon size={64} />
-                <p style={{ fontSize: 14 }}>
-                  {images[currentImage]?.name || '无图片'}
-                </p>
+                {imageLoading ? (
+                  <>
+                    <div style={{
+                      width: 40,
+                      height: 40,
+                      border: '3px solid var(--border-default)',
+                      borderTopColor: 'var(--accent-primary)',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }} />
+                    <p style={{ fontSize: 14 }}>加载图片...</p>
+                  </>
+                ) : currentImageData ? (
+                  <img
+                    src={currentImageData}
+                    alt={images[currentImage]?.name}
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain',
+                      transform: `scale(${zoom / 100})`,
+                    }}
+                  />
+                ) : (
+                  <>
+                    <ImageIcon size={64} />
+                    <p style={{ fontSize: 14 }}>
+                      {images[currentImage]?.name || '无图片'}
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>

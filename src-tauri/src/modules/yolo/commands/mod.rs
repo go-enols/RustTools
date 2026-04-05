@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectConfig {
     pub name: String,
     pub path: String,
@@ -12,6 +12,16 @@ pub struct ProjectConfig {
     pub val_split: f64,
     pub image_size: i32,
     pub description: Option<String>,
+    #[serde(default)]
+    pub images: DatasetPaths,
+    #[serde(default)]
+    pub labels: DatasetPaths,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct DatasetPaths {
+    pub train: String,
+    pub val: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +108,14 @@ labels:
             val_split: config.val_split,
             image_size: config.image_size,
             description: config.description,
+            images: DatasetPaths {
+                train: "images/train".to_string(),
+                val: "images/val".to_string(),
+            },
+            labels: DatasetPaths {
+                train: "labels/train".to_string(),
+                val: "labels/val".to_string(),
+            },
         }),
         error: None,
     })
@@ -150,8 +168,54 @@ fn parse_project_yaml(content: &str, project_path: &PathBuf) -> Result<ProjectCo
     let mut val_split = 0.2;
     let mut image_size = 640;
 
+    // Default dataset paths (used if not found in YAML)
+    let mut images_train = String::from("images/train");
+    let mut images_val = String::from("images/val");
+    let mut labels_train = String::from("labels/train");
+    let mut labels_val = String::from("labels/val");
+
+    // Simple state machine for parsing nested sections
+    let mut in_images = false;
+    let mut in_labels = false;
+
     for line in content.lines() {
         let line = line.trim();
+
+        // Track section state
+        if line == "images:" {
+            in_images = true;
+            in_labels = false;
+            continue;
+        } else if line == "labels:" {
+            in_labels = true;
+            in_images = false;
+            continue;
+        } else if line.ends_with(":") && !line.contains(" ") {
+            // Another top-level section starting
+            in_images = false;
+            in_labels = false;
+            continue;
+        }
+
+        // Parse based on current section
+        if in_images {
+            if line.starts_with("train:") {
+                images_train = line.replace("train:", "").trim().to_string();
+            } else if line.starts_with("val:") {
+                images_val = line.replace("val:", "").trim().to_string();
+            }
+            continue;
+        }
+        if in_labels {
+            if line.starts_with("train:") {
+                labels_train = line.replace("train:", "").trim().to_string();
+            } else if line.starts_with("val:") {
+                labels_val = line.replace("val:", "").trim().to_string();
+            }
+            continue;
+        }
+
+        // General fields
         if line.starts_with("name:") {
             name = line.replace("name:", "").trim().to_string();
         } else if line.starts_with("yolo_version:") {
@@ -192,5 +256,13 @@ fn parse_project_yaml(content: &str, project_path: &PathBuf) -> Result<ProjectCo
         val_split,
         image_size,
         description,
+        images: DatasetPaths {
+            train: images_train,
+            val: images_val,
+        },
+        labels: DatasetPaths {
+            train: labels_train,
+            val: labels_val,
+        },
     })
 }

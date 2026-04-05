@@ -12,6 +12,11 @@ export interface DialogResult {
 }
 
 // Project Types
+export interface DatasetPaths {
+  train: string;
+  val: string;
+}
+
 export interface ProjectConfig {
   name: string;
   path: string;
@@ -21,6 +26,8 @@ export interface ProjectConfig {
   val_split: number;
   image_size: number;
   description?: string;
+  images: DatasetPaths;
+  labels: DatasetPaths;
 }
 
 // Training Types

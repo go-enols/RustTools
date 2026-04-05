@@ -19,6 +19,8 @@ export interface Project {
   imageSize: number;
   description?: string;
   createdAt: Date;
+  images: { train: string; val: string };
+  labels: { train: string; val: string };
 }
 
 interface WorkspaceState {
@@ -72,6 +74,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         val_split: options.val_split,
         image_size: options.image_size,
         description: options.description,
+        images: { train: 'images/train', val: 'images/val' },
+        labels: { train: 'labels/train', val: 'labels/val' },
       };
 
       const response = await apiCreateProject(config);
@@ -92,6 +96,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         imageSize: config_data.image_size,
         description: config_data.description,
         createdAt: new Date(),
+        images: config_data.images,
+        labels: config_data.labels,
       };
 
       set((state) => ({
@@ -139,6 +145,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         imageSize: config.image_size,
         description: config.description,
         createdAt: new Date(),
+        images: config.images,
+        labels: config.labels,
       };
 
       set((state) => ({
@@ -190,6 +198,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (saved) {
       try {
         const project = JSON.parse(saved);
+        // Provide default paths for older projects that don't have images/labels
+        if (!project.images) {
+          project.images = { train: 'images/train', val: 'images/val' };
+        }
+        if (!project.labels) {
+          project.labels = { train: 'labels/train', val: 'labels/val' };
+        }
         set({ currentProject: project });
       } catch {
         localStorage.removeItem('currentProject');
