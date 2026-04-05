@@ -1,5 +1,5 @@
-import { X, FileText, Image, Save } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { X, FileText, Image, Save, ZoomIn, ZoomOut } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs';
 import 'prismjs/components';
@@ -65,6 +65,10 @@ export default function FileViewer({ fileName, filePath, onClose }: FileViewerPr
   const [error, setError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [imageZoom, setImageZoom] = useState(100);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const loadFile = useCallback(async () => {
     setLoading(true);
@@ -82,6 +86,12 @@ export default function FileViewer({ fileName, filePath, onClose }: FileViewerPr
           const mimeType = getImageMimeType(fileName);
           const url = `data:image/${mimeType};base64,${result.data}`;
           setImageUrl(url);
+          // Get natural image dimensions for fill calculation
+          const imgEl = new window.Image();
+          imgEl.onload = () => {
+            setImageDimensions({ width: imgEl.naturalWidth, height: imgEl.naturalHeight });
+          };
+          imgEl.src = url;
         } else {
           setError(result.error || `无法加载文件: ${fileName}`);
         }
@@ -115,6 +125,37 @@ export default function FileViewer({ fileName, filePath, onClose }: FileViewerPr
       }
     };
   }, [imageUrl]);
+
+  // Mouse wheel zoom for images
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!imageUrl) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -10 : 10;
+      setImageZoom((prev) => Math.min(Math.max(prev + delta, 25), 400));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [imageUrl]);
+
+  // Track container size for fill calculation
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const handleContentChange = (newContent: string) => {
     setContent(newContent);
@@ -179,8 +220,48 @@ export default function FileViewer({ fileName, filePath, onClose }: FileViewerPr
         {loading && <div className="file-viewer-loading">加载中...</div>}
         {error && <div className="file-viewer-error">{error}</div>}
         {imageUrl && !loading && (
-          <div className="file-viewer-image-container">
-            <img src={imageUrl} alt={fileName} className="file-viewer-image" />
+          <div className="file-viewer-image-wrapper">
+            <div className="file-viewer-image-toolbar">
+              <button
+                className="file-viewer-zoom-btn"
+                onClick={() => setImageZoom((prev) => Math.max(prev - 25, 25))}
+                title="缩小"
+              >
+                <ZoomOut size={14} />
+              </button>
+              <span className="file-viewer-zoom-level">{imageZoom}%</span>
+              <button
+                className="file-viewer-zoom-btn"
+                onClick={() => setImageZoom((prev) => Math.min(prev + 25, 400))}
+                title="放大"
+              >
+                <ZoomIn size={14} />
+              </button>
+              <button
+                className="file-viewer-zoom-btn"
+                onClick={() => setImageZoom(100)}
+                title="重置"
+                style={{ marginLeft: 8 }}
+              >
+                重置
+              </button>
+            </div>
+            <div
+              ref={containerRef}
+              className="file-viewer-image-container"
+            >
+              <img
+                src={imageUrl}
+                alt={fileName}
+                className="file-viewer-image"
+                style={{
+                  transform: imageDimensions && containerSize
+                    ? `scale(${Math.min(containerSize.width / imageDimensions.width, containerSize.height / imageDimensions.height) * (imageZoom / 100)})`
+                    : 'none',
+                  transformOrigin: 'center center',
+                }}
+              />
+            </div>
           </div>
         )}
         {content !== null && !loading && !imageUrl && (

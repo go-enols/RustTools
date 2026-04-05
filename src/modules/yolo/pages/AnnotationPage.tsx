@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   MousePointer2,
   Square,
@@ -45,6 +45,9 @@ export default function AnnotationPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentImageData, setCurrentImageData] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Auto-load images from project config on mount
   useEffect(() => {
@@ -99,9 +102,18 @@ export default function AnnotationPage() {
         // Determine MIME type from file extension
         const ext = img.name.toLowerCase().split('.').pop();
         const mimeType = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/gif';
-        setCurrentImageData(`data:${mimeType};base64,${result.data}`);
+        const dataUrl = `data:${mimeType};base64,${result.data}`;
+        setCurrentImageData(dataUrl);
+
+        // Get natural image dimensions for fill calculation
+        const imgEl = new window.Image();
+        imgEl.onload = () => {
+          setImageDimensions({ width: imgEl.naturalWidth, height: imgEl.naturalHeight });
+        };
+        imgEl.src = dataUrl;
       } else {
         setCurrentImageData(null);
+        setImageDimensions(null);
       }
       setImageLoading(false);
     };
@@ -150,6 +162,40 @@ export default function AnnotationPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentImage, images.length, selectedAnnotation]);
+
+  // Mouse wheel zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Skip if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -10 : 10;
+      setZoom((prev) => Math.min(Math.max(prev + delta, 25), 400));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  // Track container size for fill calculation
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   // Classes from project config
   const classes = currentProject?.classes.map((name, idx) => ({
@@ -375,16 +421,31 @@ export default function AnnotationPage() {
                     <p style={{ fontSize: 14 }}>加载图片...</p>
                   </>
                 ) : currentImageData ? (
-                  <img
-                    src={currentImageData}
-                    alt={images[currentImage]?.name}
+                  <div
+                    ref={containerRef}
                     style={{
-                      maxWidth: '100%',
-                      maxHeight: '100%',
-                      objectFit: 'contain',
-                      transform: `scale(${zoom / 100})`,
+                      width: '100%',
+                      height: '100%',
+                      overflow: 'auto',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
-                  />
+                  >
+                    <img
+                      src={currentImageData}
+                      alt={images[currentImage]?.name}
+                      style={{
+                        objectFit: 'contain',
+                        maxWidth: 'none',
+                        maxHeight: 'none',
+                        transform: imageDimensions && containerSize
+                          ? `scale(${Math.min(containerSize.width / imageDimensions.width, containerSize.height / imageDimensions.height) * (zoom / 100)})`
+                          : 'none',
+                        transformOrigin: 'center center',
+                      }}
+                    />
+                  </div>
                 ) : (
                   <>
                     <ImageIcon size={64} />

@@ -80,8 +80,8 @@ export default function VideoPage() {
               </div>
             ) : (
               screenshots.map((s, i) => (
-                <div key={i} style={{ marginBottom: 'var(--spacing-sm)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-                  <img src={s} alt={`Screenshot ${i + 1}`} style={{ width: '100%' }} />
+                <div key={i} style={{ marginBottom: 'var(--spacing-sm)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', aspectRatio: '16/9', background: 'var(--bg-elevated)' }}>
+                  <img src={s} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                 </div>
               ))
             )}
