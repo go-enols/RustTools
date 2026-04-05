@@ -5,6 +5,7 @@ import HubPage from './shared/pages/HubPage';
 import ToastContainer from './shared/components/ui/ToastContainer';
 import NewProjectModal from './modules/yolo/components/NewProjectModal';
 import HelpModal, { HelpType } from './modules/yolo/components/HelpModal';
+import YoloHomePage from './modules/yolo/pages/HomePage';
 import AnnotationPage from './modules/yolo/pages/AnnotationPage';
 import TrainingPage from './modules/yolo/pages/TrainingPage';
 import ResultsPage from './modules/yolo/pages/ResultsPage';
@@ -60,7 +61,7 @@ export default function App() {
 
   const handleProjectCreated = () => {
     setShowNewProject(false);
-    navigateToPage('annotation');
+    navigateToPage('yolo');
   };
 
   const renderPage = () => {
@@ -68,6 +69,7 @@ export default function App() {
       case 'hub':
         return <HubPage />;
       case 'yolo':
+        return <YoloHomePage onNavigate={handleNavigate} onOpenHelp={() => setHelpType('shortcuts')} />;
       case 'annotation':
         return <AnnotationPage />;
       case 'training':
@@ -148,12 +150,31 @@ export default function App() {
         currentPage={activePage}
         activeSidebar={activeSidebar}
         onNewProject={() => setShowNewProject(true)}
+        onGoHome={() => navigateToPage('yolo')}
       />
     </>
   );
 
+  // Hub page without project sidebar
+  if (activePage === 'hub') {
+    return (
+      <>
+        <TitleBar />
+        <HubPage />
+        {showNewProject && (
+          <NewProjectModal
+            onClose={() => setShowNewProject(false)}
+            onCreated={handleProjectCreated}
+          />
+        )}
+        <ToastContainer />
+      </>
+    );
+  }
+
   return (
     <>
+      <TitleBar />
       <AppShell sidebar={yoloSidebar}>
         {renderPage()}
       </AppShell>

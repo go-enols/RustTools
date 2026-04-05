@@ -7,6 +7,7 @@ import {
   File,
   Plus,
   RefreshCw,
+  Home,
 } from 'lucide-react';
 import { PageType } from '../../../../core/stores/routerStore';
 
@@ -14,6 +15,7 @@ interface SidebarProps {
   currentPage: PageType;
   activeSidebar: 'explorer' | 'search' | 'none';
   onNewProject: () => void;
+  onGoHome: () => void;
 }
 
 // Mock file tree structure
@@ -48,7 +50,7 @@ const mockFileTree: FileNode[] = [
   { name: 'train.py', type: 'file' },
 ];
 
-export default function Sidebar({ currentPage, activeSidebar, onNewProject }: SidebarProps) {
+export default function Sidebar({ currentPage, activeSidebar, onNewProject, onGoHome }: SidebarProps) {
   const [fileTree, setFileTree] = useState<FileNode[]>(mockFileTree);
 
   if (activeSidebar === 'none') {
@@ -96,30 +98,14 @@ export default function Sidebar({ currentPage, activeSidebar, onNewProject }: Si
     );
   };
 
-  if (activeSidebar === 'search') {
-    return (
-      <aside className="sidebar sidebar-explorer">
-        <div className="sidebar-header">
-          <span>搜索</span>
-        </div>
-        <div className="sidebar-content">
-          <div className="search-container">
-            <input
-              type="text"
-              className="search-input"
-              placeholder="搜索..."
-            />
-          </div>
-        </div>
-      </aside>
-    );
-  }
-
   return (
     <aside className="sidebar sidebar-explorer">
       <div className="sidebar-header">
         <span>资源管理器</span>
         <div className="sidebar-actions">
+          <button className="sidebar-action-btn" onClick={onGoHome} title="返回首页">
+            <Home size={16} />
+          </button>
           <button className="sidebar-action-btn" onClick={onNewProject} title="新建项目">
             <Plus size={16} />
           </button>

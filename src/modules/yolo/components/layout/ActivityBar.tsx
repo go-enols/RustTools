@@ -8,7 +8,7 @@ import {
   Wrench,
   Settings,
   FolderOpen,
-  Search,
+  Layout,
 } from 'lucide-react';
 import { PageType } from '../../../../core/stores/routerStore';
 
@@ -35,7 +35,7 @@ export default function ActivityBar({
   activeSidebar,
   onSidebarChange,
 }: ActivityBarProps) {
-  const isPageActive = (pageId: PageType) => currentPage === pageId;
+  const isPageActive = (pageId: PageType) => currentPage === pageId || (pageId === 'yolo' && currentPage === 'yolo');
 
   const handlePageClick = (pageId: PageType) => {
     onNavigate(pageId);
@@ -49,14 +49,12 @@ export default function ActivityBar({
     onSidebarChange(activeSidebar === 'explorer' ? 'none' : 'explorer');
   };
 
-  const handleSearchClick = () => {
-    onSidebarChange(activeSidebar === 'search' ? 'none' : 'search');
-  };
-
   return (
     <div className="activity-bar">
       {/* Page Navigation Icons */}
       <div className="activity-icons">
+
+
         {/* Explorer toggle */}
         <div
           className={`activity-icon ${activeSidebar === 'explorer' ? 'active' : ''}`}
@@ -66,17 +64,15 @@ export default function ActivityBar({
           <FolderOpen size={24} />
         </div>
 
-        {/* Search toggle */}
-        <div
-          className={`activity-icon ${activeSidebar === 'search' ? 'active' : ''}`}
-          onClick={handleSearchClick}
-          title="搜索"
-        >
-          <Search size={24} />
-        </div>
-
         <div className="activity-divider" />
-
+        {/* Home/Explorer toggle */}
+        <div
+          className={`activity-icon ${isPageActive('yolo') ? 'active' : ''}`}
+          onClick={() => handlePageClick('yolo')}
+          title="项目首页"
+        >
+          <Layout size={24} />
+        </div>
         {/* Page navigation */}
         {pageIcons.map((item) => {
           const Icon = item.icon;

@@ -1,9 +1,11 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, Square, X, Maximize2 } from 'lucide-react';
+import { Minus, Square, X, Maximize2, Home } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useRouterStore } from '../../stores/routerStore';
 
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { navigateToPage } = useRouterStore();
 
   useEffect(() => {
     const checkMaximized = async () => {
@@ -61,10 +63,13 @@ export default function TitleBar() {
       onMouseDown={handleDragStart}
       onDoubleClick={handleDoubleClick}
     >
-      <div className="title-bar-drag">
-        <div className="title-bar-icon">Y</div>
-        <span className="title-bar-title">YOLO-Flow</span>
-      </div>
+      <button
+        className="title-bar-btn title-bar-btn-hub"
+        onClick={() => navigateToPage('hub')}
+        title="返回首页"
+      >
+        <Home size={14} />
+      </button>
 
       <div className="title-bar-controls">
         <button

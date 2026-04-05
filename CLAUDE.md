@@ -26,7 +26,8 @@
 - 测试优先：采用 TDD（使用 `tdd-guide`）；模块需要单元测试、集成测试，关键流程需要 E2E 测试，目标覆盖率为 80%。
 - 代码审查：完成实现后调用 `code-reviewer`，安全/敏感变更同时调用 `security-reviewer`。
 - 构建与运行：前端开发先运行 `npm run dev`（或 `pnpm dev`），如需启动 Tauri 调试请运行 `npm run tauri dev`（或等价命令）。
-- 构建失败：遇到构建/编译失败，请调用相应的构建解析 agent（如 `rust-build-resolver`、`cpp-build-resolver` 等）。
+- 构建失败：遇到构建/编译失败，请调用相应的构建解析 agent（如 `rust-build-resolver`等）。
+- 前端编写代码时如果需要打印信息请使用 `shared/components/ui/Toast.tsx` 组件
 - 文档要求：任何新功能必须先在 `doc/进行中/` 创建文档并在 `doc/0-index.md` 注册条目。
 - 验证与发布：修改完成后优先运行受影响模块的测试并手动验证关键交互（路由、项目创建、训练命令等）。
 
