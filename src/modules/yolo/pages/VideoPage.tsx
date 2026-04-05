@@ -12,7 +12,7 @@ import {
   Settings2,
   Gauge,
 } from 'lucide-react';
-import { useTrainingStore } from '../../stores/trainingStore';
+import { useTrainingStore } from '../../../core/stores/trainingStore';
 
 export default function VideoPage() {
   const videoRef = useRef<HTMLVideoElement>(null);

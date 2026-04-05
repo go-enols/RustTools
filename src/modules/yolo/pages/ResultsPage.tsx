@@ -7,8 +7,8 @@ import {
   CheckCircle,
   XCircle,
 } from 'lucide-react';
-import { useTrainingStore, TrainedModel } from '../../stores/trainingStore';
-import ModelConvertModal from './ModelConvertModal';
+import { useTrainingStore, TrainedModel } from '../../../core/stores/trainingStore';
+import ModelConvertModal from '../components/ModelConvertModal';
 
 export default function ResultsPage() {
   const { trainedModels, removeTrainedModel } = useTrainingStore();

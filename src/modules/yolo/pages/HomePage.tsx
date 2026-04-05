@@ -10,10 +10,11 @@ import {
   Video,
   Trash2,
   X,
+  AlertCircle,
 } from 'lucide-react';
-import { useWorkspaceStore, Project } from '../../stores/workspaceStore';
-import NewProjectModal from './NewProjectModal';
-import HelpModal, { HelpType } from '../ui/HelpModal';
+import { useWorkspaceStore, Project } from '../../../core/stores/workspaceStore';
+import NewProjectModal from '../components/NewProjectModal';
+import HelpModal, { HelpType } from '../components/HelpModal';
 
 interface HomePageProps {
   onNavigate: (page: 'annotation' | 'training' | 'results' | 'video') => void;
@@ -28,14 +29,23 @@ export default function HomePage({ onNavigate, onCloseProject }: HomePageProps) 
     openProject,
     openProjectFromPath,
     currentProject,
+    error,
+    setError,
   } = useWorkspaceStore();
   const [showNewProject, setShowNewProject] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [helpType, setHelpType] = useState<HelpType | null>(null);
+  const [showError, setShowError] = useState(false);
 
   useEffect(() => {
     loadRecentProjects();
   }, [loadRecentProjects]);
+
+  useEffect(() => {
+    if (error) {
+      setShowError(true);
+    }
+  }, [error]);
 
   const handleOpenProject = async () => {
     setIsLoading(true);
@@ -44,11 +54,19 @@ export default function HomePage({ onNavigate, onCloseProject }: HomePageProps) 
       const { selectProjectPath } = useWorkspaceStore.getState();
       const path = await selectProjectPath();
       if (path) {
-        await openProjectFromPath(path);
+        const success = await openProjectFromPath(path);
+        if (!success) {
+          // Error is already set in store by openProjectFromPath
+        }
       }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleDismissError = () => {
+    setShowError(false);
+    setError(null);
   };
 
   const handleProjectClick = (project: Project) => {
@@ -73,6 +91,44 @@ export default function HomePage({ onNavigate, onCloseProject }: HomePageProps) 
   return (
     <>
       <div className="content-body">
+        {/* Error Toast */}
+        {showError && error && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--spacing-md)',
+              padding: 'var(--spacing-md) var(--spacing-lg)',
+              background: 'var(--status-error)',
+              borderRadius: 'var(--radius-md)',
+              marginBottom: 'var(--spacing-lg)',
+              color: 'white',
+            }}
+          >
+            <AlertCircle size={20} />
+            <span style={{ flex: 1, fontSize: 14 }}>{error}</span>
+            <button
+              onClick={handleDismissError}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 24,
+                height: 24,
+                border: 'none',
+                background: 'transparent',
+                color: 'white',
+                cursor: 'pointer',
+                borderRadius: 'var(--radius-sm)',
+                opacity: 0.8,
+              }}
+              title="关闭"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         {/* Current Project Banner */}
         {currentProject && (
           <div

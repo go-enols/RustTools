@@ -18,18 +18,26 @@ src/
 ├── App.tsx                           # 根组件
 │
 ├── core/                             # 【核心基础设施】- 模块不可修改
-│   ├── api/
-│   │   └── api.ts                   # 全局 API 调用
+│   ├── api/                          # API 调用层（模块化）
+│   │   ├── index.ts                  # 统一导出（barrel file）
+│   │   ├── types.ts                  # 共享类型定义
+│   │   ├── common.ts                 # 通用功能（文件对话框、版本检查等）
+│   │   ├── project.ts               # 项目管理 API
+│   │   ├── dataset.ts               # 数据集管理 API
+│   │   ├── annotation.ts            # 标注功能 API
+│   │   ├── training.ts               # 训练功能 API
+│   │   ├── model.ts                 # 模型管理 API
+│   │   ├── device.ts                # 设备管理 API
+│   │   ├── video.ts                 # 视频处理 API
+│   │   └── settings.ts              # 设置管理 API
 │   ├── components/
-│   │   └── layout/                  # 布局组件
-│   │       ├── TitleBar.tsx
-│   │       ├── ActivityBar.tsx
-│   │       ├── Sidebar.tsx
-│   │       ├── StatusBar.tsx
-│   │       └── AppShell.tsx
+│   │   └── layout/                  # 通用布局组件
+│   │       ├── TitleBar.tsx         # 自定义标题栏
+│   │       └── AppShell.tsx         # 应用外壳（接收 sidebar 和 children 作为 props）
 │   ├── stores/                       # 全局状态
 │   │   ├── routerStore.ts
 │   │   ├── workspaceStore.ts
+│   │   ├── trainingStore.ts
 │   │   └── settingsStore.ts
 │   └── styles/
 │       ├── index.css                # 全局样式
@@ -52,6 +60,12 @@ src/
 │   │   │   ├── VideoPage.tsx
 │   │   │   └── DevicePage.tsx
 │   │   └── components/
+│   │       ├── layout/               # YOLO 专用布局
+│   │       │   ├── ActivityBar.tsx  # 左侧活动栏
+│   │       │   ├── Sidebar.tsx      # 侧边栏
+│   │       │   └── StatusBar.tsx    # 底部状态栏
+│   │       ├── NewProjectModal.tsx  # 新建项目弹窗（YOLO 专用）
+│   │       ├── HelpModal.tsx        # 帮助弹窗（YOLO 专用）
 │   │       ├── TrainingPanel.tsx
 │   │       ├── ModelConvertModal.tsx
 │   │       └── ...
@@ -63,11 +77,9 @@ src/
     └── components/
         ├── ui/
         │   ├── Button.tsx
-        │   ├── Modal.tsx
-        │   └── HelpModal.tsx
-        └── workspace/
-            ├── HomePage.tsx
-            └── NewProjectModal.tsx
+        │   └── Modal.tsx
+        └── pages/
+            └── HubPage.tsx
 ```
 
 #### 后端目录 (src-tauri/src/)

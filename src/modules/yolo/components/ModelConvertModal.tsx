@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, FolderOpen, Loader2 } from 'lucide-react';
-import { TrainedModel } from '../../stores/trainingStore';
+import { TrainedModel } from '../../../core/stores/trainingStore';
 
 interface ModelConvertModalProps {
   model: TrainedModel;

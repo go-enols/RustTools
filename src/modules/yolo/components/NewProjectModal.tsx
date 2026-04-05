@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FolderOpen, X } from 'lucide-react';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
 
 interface NewProjectModalProps {
   onClose: () => void;

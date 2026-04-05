@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSettingsStore, DeviceInfo } from '../../stores/settingsStore';
+import { useSettingsStore, DeviceInfo } from '../../../core/stores/settingsStore';
 
 export default function DevicePage() {
   const { devices, loadDevices } = useSettingsStore();

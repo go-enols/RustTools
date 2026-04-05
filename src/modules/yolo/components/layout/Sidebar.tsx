@@ -8,7 +8,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import { PageType } from '../../App';
+import { PageType } from '../../../../core/stores/routerStore';
 
 interface SidebarProps {
   currentPage: PageType;

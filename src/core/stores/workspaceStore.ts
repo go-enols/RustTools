@@ -49,6 +49,7 @@ interface WorkspaceState {
   clearRecentProjects: () => void;
   saveCurrentProject: () => Promise<void>;
   selectProjectPath: () => Promise<string | null>;
+  setError: (error: string | null) => void;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -217,4 +218,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
     return result.path;
   },
+
+  setError: (error) => set({ error }),
 }));

@@ -1,5 +1,5 @@
-import { Project } from '../../stores/workspaceStore';
-import { PageType } from '../../App';
+import { Project } from '../../../../core/stores/workspaceStore';
+import { PageType } from '../../../../core/stores/routerStore';
 
 interface StatusBarProps {
   currentProject: Project | null;

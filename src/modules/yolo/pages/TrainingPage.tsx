@@ -6,7 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useTrainingStore, TrainingConfig, TrainingMetrics } from '../../stores/trainingStore';
+import { useTrainingStore, TrainingConfig, TrainingMetrics } from '../../../core/stores/trainingStore';
 import * as echarts from 'echarts';
 
 const defaultConfig: TrainingConfig = {

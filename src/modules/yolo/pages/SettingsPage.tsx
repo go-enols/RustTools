@@ -8,7 +8,7 @@ import {
   Save,
   RotateCcw,
 } from 'lucide-react';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useSettingsStore } from '../../../core/stores/settingsStore';
 
 export default function SettingsPage() {
   const {

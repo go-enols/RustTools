@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react';
-import AppShell from './components/layout/AppShell';
-import TitleBar from './components/layout/TitleBar';
-import HubPage from './components/layout/HubPage';
-import NewProjectModal from './components/workspace/NewProjectModal';
-import HelpModal, { HelpType } from './components/ui/HelpModal';
-import AnnotationPage from './components/annotation/AnnotationPage';
-import TrainingPage from './components/training/TrainingPage';
-import ResultsPage from './components/results/ResultsPage';
-import VideoPage from './components/video/VideoPage';
-import DevicePage from './components/device/DevicePage';
-import ToolsPage from './components/tools/ToolsPage';
-import SettingsPage from './components/settings/SettingsPage';
-import { useSettingsStore } from './stores/settingsStore';
-import { useWorkspaceStore } from './stores/workspaceStore';
-import { useRouterStore, PageType } from './stores/routerStore';
+import AppShell from './core/components/layout/AppShell';
+import TitleBar from './core/components/layout/TitleBar';
+import HubPage from './shared/pages/HubPage';
+import NewProjectModal from './modules/yolo/components/NewProjectModal';
+import HelpModal, { HelpType } from './modules/yolo/components/HelpModal';
+import AnnotationPage from './modules/yolo/pages/AnnotationPage';
+import TrainingPage from './modules/yolo/pages/TrainingPage';
+import ResultsPage from './modules/yolo/pages/ResultsPage';
+import VideoPage from './modules/yolo/pages/VideoPage';
+import DevicePage from './modules/yolo/pages/DevicePage';
+import ToolsPage from './modules/yolo/pages/ToolsPage';
+import SettingsPage from './modules/yolo/pages/SettingsPage';
+import YoloActivityBar from './modules/yolo/components/layout/ActivityBar';
+import YoloSidebar from './modules/yolo/components/layout/Sidebar';
+import { useSettingsStore } from './core/stores/settingsStore';
+import { useWorkspaceStore } from './core/stores/workspaceStore';
+import { useRouterStore, PageType } from './core/stores/routerStore';
 import { registerYoloModule } from './modules/yolo/manifest';
 
 // Re-export PageType for components that import from App
-export type { PageType } from './stores/routerStore';
+export type { PageType } from './core/stores/routerStore';
 
 export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
@@ -115,7 +117,7 @@ export default function App() {
     );
   }
 
-  // No project open - show Hub page
+  // No project open - show Hub page (without AppShell)
   if (!currentProject) {
     return (
       <>
@@ -131,16 +133,26 @@ export default function App() {
     );
   }
 
-  return (
+  // With project open - compose YOLO layout
+  const yoloSidebar = (
     <>
-      <AppShell
+      <YoloActivityBar
         currentPage={activePage}
         onNavigate={handleNavigate}
-        onNewProject={() => setShowNewProject(true)}
-        onShowHelp={(type) => setHelpType(type)}
         activeSidebar={activeSidebar}
         onSidebarChange={handleSidebarChange}
-      >
+      />
+      <YoloSidebar
+        currentPage={activePage}
+        activeSidebar={activeSidebar}
+        onNewProject={() => setShowNewProject(true)}
+      />
+    </>
+  );
+
+  return (
+    <>
+      <AppShell sidebar={yoloSidebar}>
         {renderPage()}
       </AppShell>
       {showNewProject && (

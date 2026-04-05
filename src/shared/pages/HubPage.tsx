@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useRouterStore, moduleRegistry } from '../../modules';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
-import YoloGuideModal from '../yolo/YoloGuideModal';
-import NewProjectModal from '../workspace/NewProjectModal';
+import { useWorkspaceStore } from '../../core/stores/workspaceStore';
+import YoloGuideModal from '../../modules/yolo/components/YoloGuideModal';
+import NewProjectModal from '../../modules/yolo/components/NewProjectModal';
 import { Lock, Sparkles, ArrowRight } from 'lucide-react';
 
 export default function HubPage() {

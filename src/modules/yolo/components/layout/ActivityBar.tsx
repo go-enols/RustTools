@@ -10,7 +10,7 @@ import {
   FolderOpen,
   Search,
 } from 'lucide-react';
-import { PageType } from '../../App';
+import { PageType } from '../../../../core/stores/routerStore';
 
 interface ActivityBarProps {
   currentPage: PageType;
