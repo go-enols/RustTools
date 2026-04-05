@@ -15,6 +15,7 @@ import ToolsPage from './modules/yolo/pages/ToolsPage';
 import SettingsPage from './modules/yolo/pages/SettingsPage';
 import YoloActivityBar from './modules/yolo/components/layout/ActivityBar';
 import YoloSidebar from './modules/yolo/components/layout/Sidebar';
+import FileViewer from './shared/components/ui/FileViewer';
 import { useSettingsStore } from './core/stores/settingsStore';
 import { useWorkspaceStore } from './core/stores/workspaceStore';
 import { useRouterStore, PageType } from './core/stores/routerStore';
@@ -28,6 +29,7 @@ export default function App() {
   const [helpType, setHelpType] = useState<HelpType | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [activeSidebar, setActiveSidebar] = useState<'explorer' | 'search' | 'none'>('explorer');
+  const [openFile, setOpenFile] = useState<{ name: string; path: string } | null>(null);
   const theme = useSettingsStore((state) => state.settings.theme);
   const { currentProject, loadRecentProjects, loadCurrentProject } = useWorkspaceStore();
   const { activePage, navigateToPage } = useRouterStore();
@@ -59,6 +61,10 @@ export default function App() {
     setActiveSidebar(sidebar);
   };
 
+  const handleOpenFile = (fileName: string, filePath: string) => {
+    setOpenFile({ name: fileName, path: filePath });
+  };
+
   const handleProjectCreated = () => {
     setShowNewProject(false);
     navigateToPage('yolo');
@@ -69,6 +75,16 @@ export default function App() {
       case 'hub':
         return <HubPage />;
       case 'yolo':
+        // YOLO 首页：文件打开时显示 FileViewer，否则显示首页内容
+        if (openFile) {
+          return (
+            <FileViewer
+              fileName={openFile.name}
+              filePath={openFile.path}
+              onClose={() => setOpenFile(null)}
+            />
+          );
+        }
         return <YoloHomePage onNavigate={handleNavigate} onOpenHelp={() => setHelpType('shortcuts')} />;
       case 'annotation':
         return <AnnotationPage />;
@@ -149,8 +165,7 @@ export default function App() {
       <YoloSidebar
         currentPage={activePage}
         activeSidebar={activeSidebar}
-        onNewProject={() => setShowNewProject(true)}
-        onGoHome={() => navigateToPage('yolo')}
+        onOpenFile={handleOpenFile}
       />
     </>
   );
