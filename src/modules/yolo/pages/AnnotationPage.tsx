@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   MousePointer2,
   Square,
@@ -80,11 +80,11 @@ export default function AnnotationPage() {
   const imageRef = useRef<HTMLImageElement>(null);
 
   // Classes from project config
-  const classes = currentProject?.classes.map((name, idx) => ({
+  const classes = useMemo(() => currentProject?.classes.map((name, idx) => ({
     id: idx,
     name,
     color: getClassColor(idx),
-  })) || [];
+  })) || [], [currentProject?.classes]);
 
   // Generate consistent color for class
   function getClassColor(classId: number): string {
@@ -417,18 +417,6 @@ export default function AnnotationPage() {
     }
   }, [selectedAnnotation]);
 
-  // Compute transform style
-  const getTransformStyle = () => {
-    if (!imageDimensions || !containerSize) {
-      return 'none';
-    }
-    const scale = Math.min(
-      containerSize.width / imageDimensions.width,
-      containerSize.height / imageDimensions.height
-    ) * (zoom / 100);
-    return `scale(${scale}) translate(${imagePosition.x / scale}px, ${imagePosition.y / scale}px)`;
-  };
-
   // Get current drawing rect for display
   const getDrawRect = () => {
     if (!drawState.isDrawing) return null;
@@ -658,22 +646,22 @@ export default function AnnotationPage() {
                     <p style={{ fontSize: 14 }}>加载图片...</p>
                   </>
                 ) : currentImageData ? (
-                  <div style={{ position: 'relative' }}>
+                  <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <img
                       ref={imageRef}
                       src={currentImageData}
                       alt={images[currentImage]?.name}
                       style={{
-                        maxWidth: 'none',
-                        maxHeight: 'none',
-                        transform: getTransformStyle(),
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        transform: `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${zoom / 100})`,
                         transformOrigin: 'center center',
                         userSelect: 'none',
                       }}
                       draggable={false}
                     />
                     {/* Annotation boxes overlay */}
-                    <div style={{ position: 'absolute', top: 0, left: 0, transform: getTransformStyle(), transformOrigin: 'center center', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
+                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: `translate(-50%, -50%) translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${zoom / 100})`, transformOrigin: 'center center', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
                       {annotations.map((ann) => (
                         <div
                           key={ann.id}
