@@ -40,13 +40,12 @@ impl TrainerService {
 
         // Build YOLO command
         // YOLO expects data parameter to point to data.yaml file
-        let data_yaml = std::path::Path::new(&project_path)
-            .join("data.yaml")
-            .to_string_lossy()
-            .to_string();
+        // We need to run from the project directory so relative paths work
+        let data_yaml = "data.yaml".to_string();
 
         let mut cmd = Command::new("yolo");
-        cmd.args([
+        cmd.current_dir(&project_path)  // Run from project directory
+            .args([
             "detect", "train",
             &format!("data={}", data_yaml),
             &format!("model={}", request.base_model),
