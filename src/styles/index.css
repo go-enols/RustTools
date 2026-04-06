@@ -1298,19 +1298,9 @@ body {
   overflow: hidden;
 }
 
-.annotation-toolbar {
-  width: 60px;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--border-default);
-  padding: var(--spacing-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
 .annotation-tool-btn {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;

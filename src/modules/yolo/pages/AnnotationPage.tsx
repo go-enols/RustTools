@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ZoomIn,
   ZoomOut,
-  RotateCw,
   Trash2,
   Plus,
   Edit2,
@@ -74,6 +73,10 @@ export default function AnnotationPage() {
     currentX: 0,
     currentY: 0,
   });
+
+  // Magnifier state - mouse position on image and screen position for pixel magnifier
+  const [magnifierPos, setMagnifierPos] = useState<{ x: number; y: number } | null>(null);
+  const [magnifierScreenPos, setMagnifierScreenPos] = useState<{ x: number; y: number } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -173,27 +176,31 @@ export default function AnnotationPage() {
         const dataUrl = `data:${mimeType};base64,${result.data}`;
         setCurrentImageData(dataUrl);
 
+        // Load existing annotations first to get the data
+        const labelPath = getLabelPath(img.path);
+        const labelResult = await loadAnnotation(labelPath);
+
         const imgEl = new window.Image();
         imgEl.onload = () => {
           setImageDimensions({ width: imgEl.naturalWidth, height: imgEl.naturalHeight });
+
+          // Load annotations after image dimensions are set
+          if (labelResult.success && labelResult.data) {
+            const loadedAnnotations: AnnotationItem[] = labelResult.data.map((ann, idx) => ({
+              id: `ann-${Date.now()}-${idx}`,
+              label: classes[ann.class_id]?.name || `Class ${ann.class_id}`,
+              classId: ann.class_id,
+              x: (ann.x_center - ann.width / 2) * imgEl.naturalWidth,
+              y: (ann.y_center - ann.height / 2) * imgEl.naturalHeight,
+              width: ann.width * imgEl.naturalWidth,
+              height: ann.height * imgEl.naturalHeight,
+            }));
+            setAnnotations(loadedAnnotations);
+          } else {
+            setAnnotations([]);
+          }
         };
         imgEl.src = dataUrl;
-
-        // Load existing annotations
-        const labelPath = getLabelPath(img.path);
-        const labelResult = await loadAnnotation(labelPath);
-        if (labelResult.success && labelResult.data) {
-          const loadedAnnotations: AnnotationItem[] = labelResult.data.map((ann, idx) => ({
-            id: `ann-${Date.now()}-${idx}`,
-            label: classes[ann.class_id]?.name || `Class ${ann.class_id}`,
-            classId: ann.class_id,
-            x: (ann.x_center - ann.width / 2) * imgEl.naturalWidth,
-            y: (ann.y_center - ann.height / 2) * imgEl.naturalHeight,
-            width: ann.width * imgEl.naturalWidth,
-            height: ann.height * imgEl.naturalHeight,
-          }));
-          setAnnotations(loadedAnnotations);
-        }
       } else {
         setCurrentImageData(null);
         setImageDimensions(null);
@@ -201,6 +208,7 @@ export default function AnnotationPage() {
       }
       setImageLoading(false);
       setImagePosition({ x: 0, y: 0 });
+      setDrawState({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
     };
 
     loadImageData();
@@ -272,6 +280,12 @@ export default function AnnotationPage() {
             setSelectedAnnotation(null);
           }
           break;
+        case 'e':
+          // Cycle to next class
+          if (classes.length > 0) {
+            setSelectedClassId(prev => (prev + 1) % classes.length);
+          }
+          break;
         case 'escape':
           setSelectedAnnotation(null);
           setDrawState({ isDrawing: false, startX: 0, startY: 0, currentX: 0, currentY: 0 });
@@ -287,7 +301,7 @@ export default function AnnotationPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentImage, images.length, selectedAnnotation, saveCurrentAnnotations]);
+  }, [currentImage, images.length, selectedAnnotation, saveCurrentAnnotations, classes.length]);
 
   // Mouse wheel zoom
   useEffect(() => {
@@ -361,10 +375,21 @@ export default function AnnotationPage() {
         currentX: mouseX,
         currentY: mouseY,
       });
+      setMagnifierPos({ x: mouseX, y: mouseY });
+      setMagnifierScreenPos({ x: e.clientX, y: e.clientY });
     }
   }, [tool, imagePosition, imageDimensions, containerSize, displayTransform]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      // Calculate mouse position on image
+      const mouseX = (e.clientX - rect.left - displayTransform.offsetX) / displayTransform.scale;
+      const mouseY = (e.clientY - rect.top - displayTransform.offsetY) / displayTransform.scale;
+      setMagnifierPos({ x: mouseX, y: mouseY });
+      setMagnifierScreenPos({ x: e.clientX, y: e.clientY });
+    }
+
     if (isDragging && tool === 'select') {
       const deltaX = e.clientX - dragStartRef.current.x;
       const deltaY = e.clientY - dragStartRef.current.y;
@@ -373,7 +398,6 @@ export default function AnnotationPage() {
         y: dragStartRef.current.imgY + deltaY,
       });
     } else if (drawState.isDrawing && tool === 'draw' && imageDimensions && containerSize) {
-      const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
 
       const mouseX = (e.clientX - rect.left - displayTransform.offsetX) / displayTransform.scale;
@@ -420,7 +444,14 @@ export default function AnnotationPage() {
         currentY: 0,
       });
     }
+    setMagnifierPos(null);
+    setMagnifierScreenPos(null);
   }, [isDragging, drawState, tool, classes, selectedClassId]);
+
+  const handleMouseLeave = useCallback(() => {
+    setMagnifierPos(null);
+    setMagnifierScreenPos(null);
+  }, []);
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedAnnotation) {
@@ -494,336 +525,394 @@ export default function AnnotationPage() {
   };
 
   return (
-    <div className="annotation-canvas" style={{ height: '100%' }}>
-      {/* Left Toolbar */}
-      <div className="annotation-toolbar">
+    <div className="annotation-canvas" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div className="annotation-header" style={{ justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)' }}>
+          <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+            进度: {currentImage + 1}/{images.length} ({images.length > 0 ? (((currentImage + 1) / images.length) * 100).toFixed(1) : 0}%)
+          </span>
+          <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+            标注: {annotations.length}
+          </span>
+          <span style={{ fontSize: 13, color: tool === 'draw' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}>
+            模式: {tool === 'select' ? '拖动' : '绘制'}
+          </span>
+        </div>
+        {/* Keyboard Shortcuts */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>快捷键:</span>
+          <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>Q</kbd> 拖动</span>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>W</kbd> 绘制</span>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>E</kbd> 类别</span>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>A/D</kbd> 切换</span>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>Backspace</kbd> 删除</span>
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>Ctrl+S</kbd> 保存</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Toolbar - between header and content */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', padding: 'var(--spacing-sm) var(--spacing-lg)', background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-default)' }}>
+        <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginRight: 'var(--spacing-sm)' }}>工具:</span>
         <div
           className={`annotation-tool-btn ${tool === 'select' ? 'active' : ''}`}
           onClick={() => setTool('select')}
           title="选择/拖动 (Q)"
         >
-          <MousePointer2 size={20} />
+          <MousePointer2 size={18} />
         </div>
         <div
           className={`annotation-tool-btn ${tool === 'draw' ? 'active' : ''}`}
           onClick={() => setTool('draw')}
           title="绘制标注 (W)"
         >
-          <Square size={20} />
+          <Square size={18} />
         </div>
-        <div style={{ flex: 1 }} />
+        <div style={{ width: 1, height: 20, background: 'var(--border-default)', margin: '0 var(--spacing-sm)' }} />
         <div className="annotation-tool-btn" onClick={() => { saveCurrentAnnotations(annotations); }} title="保存 (Ctrl+S)">
-          <Save size={20} />
+          <Save size={18} />
         </div>
         <div className="annotation-tool-btn" onClick={() => currentImage > 0 && setCurrentImage(prev => prev - 1)} title="上一张 (A)">
-          <ChevronLeft size={20} />
+          <ChevronLeft size={18} />
         </div>
         <div className="annotation-tool-btn" onClick={() => currentImage < images.length - 1 && setCurrentImage(prev => prev + 1)} title="下一张 (D)">
-          <ChevronRight size={20} />
+          <ChevronRight size={18} />
         </div>
-        <div className="annotation-tool-btn" onClick={() => setZoom(prev => Math.min(prev + 25, 400))} title="放大">
-          <ZoomIn size={20} />
-        </div>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)', minWidth: 60 }}>{currentImage + 1}/{images.length}</span>
+        <div style={{ width: 1, height: 20, background: 'var(--border-default)', margin: '0 var(--spacing-sm)' }} />
         <div className="annotation-tool-btn" onClick={() => setZoom(prev => Math.max(prev - 25, 25))} title="缩小">
-          <ZoomOut size={20} />
+          <ZoomOut size={18} />
         </div>
-        <div className="annotation-tool-btn" title="旋转">
-          <RotateCw size={20} />
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 45, textAlign: 'center' }}>{zoom}%</span>
+        <div className="annotation-tool-btn" onClick={() => setZoom(prev => Math.min(prev + 25, 400))} title="放大">
+          <ZoomIn size={18} />
         </div>
+        <div style={{ flex: 1 }} />
         <div className="annotation-tool-btn" title="删除选中" onClick={handleDeleteSelected}>
-          <Trash2 size={20} />
+          <Trash2 size={18} />
         </div>
       </div>
 
-      <div className="annotation-workspace">
-        {/* Header */}
-        <div className="annotation-header">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)' }}>
-              <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
-                进度: {currentImage + 1}/{images.length} ({images.length > 0 ? (((currentImage + 1) / images.length) * 100).toFixed(1) : 0}%)
-              </span>
-              <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-                标注: {annotations.length}
-              </span>
-              <span style={{ fontSize: 13, color: tool === 'draw' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}>
-                模式: {tool === 'select' ? '拖动' : '绘制'}
-              </span>
-            </div>
-            {/* Keyboard Shortcuts */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', padding: 'var(--spacing-xs) var(--spacing-sm)', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)' }}>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>快捷键:</span>
-              <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
-                <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>Q</kbd> 拖动</span>
-                <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>W</kbd> 绘制</span>
-                <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>A</kbd> 前一张</span>
-                <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>D</kbd> 下一张</span>
-                <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}><kbd style={{ padding: '1px 5px', background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 3, fontSize: 10 }}>Ctrl+S</kbd> 保存</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)' }}>
-            {currentProject && (
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                数据集: {currentProject.images.train}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="annotation-content">
-          {/* Left Panel - Annotation List */}
-          <div className="annotation-sidebar-left">
-            <div>
-              <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
-                标注列表
-              </h4>
-              {annotations.length === 0 ? (
-                <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>暂无标注 (按W绘制)</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
-                  {annotations.map((ann) => (
-                    <div
-                      key={ann.id}
-                      onClick={() => setSelectedAnnotation(ann.id)}
-                      style={{
-                        padding: 'var(--spacing-sm)',
-                        background: selectedAnnotation === ann.id ? 'var(--bg-active)' : 'var(--bg-elevated)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        borderLeft: `3px solid ${getClassColor(ann.classId)}`,
-                      }}
-                    >
-                      <span style={{ color: getClassColor(ann.classId), fontWeight: 500 }}>{ann.label}</span>
-                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 11 }}>
-                        {Math.round(ann.x)}, {Math.round(ann.y)} {Math.round(ann.width)}x{Math.round(ann.height)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Main Canvas */}
-          <div className="annotation-main">
-            {isLoading ? (
-              <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                <div style={{ width: 40, height: 40, border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>加载图片中...</p>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              </div>
-            ) : error ? (
-              <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                <FolderOpen size={48} style={{ color: 'var(--status-error)' }} />
-                <p style={{ color: 'var(--status-error)', fontSize: 14 }}>{error}</p>
-                <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>请确保项目包含 images/train 或 images/val 文件夹</p>
-              </div>
-            ) : images.length === 0 ? (
-              <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                <ImageIcon size={48} style={{ color: 'var(--text-tertiary)' }} />
-                <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>未找到图片文件</p>
-                <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>请将图片放入 images/train 文件夹</p>
-              </div>
+      <div className="annotation-content">
+        {/* Left Panel - Annotation List */}
+        <div className="annotation-sidebar-left">
+          <div>
+            <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+              标注列表
+            </h4>
+            {annotations.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>暂无标注 (按W绘制)</p>
             ) : (
-              <div
-                ref={containerRef}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  overflow: 'hidden',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: tool === 'select' ? (isDragging ? 'grabbing' : 'grab') : 'crosshair',
-                }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-              >
-                {imageLoading ? (
-                  <>
-                    <div style={{ width: 40, height: 40, border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                    <p style={{ fontSize: 14 }}>加载图片...</p>
-                  </>
-                ) : currentImageData ? (
-                  <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <img
-                      ref={imageRef}
-                      src={currentImageData}
-                      alt={images[currentImage]?.name}
-                      style={{
-                        position: 'absolute',
-                        left: displayTransform.offsetX,
-                        top: displayTransform.offsetY,
-                        width: imageDimensions?.width,
-                        height: imageDimensions?.height,
-                        transform: `scale(${displayTransform.scale})`,
-                        transformOrigin: 'top left',
-                        userSelect: 'none',
-                      }}
-                      draggable={false}
-                    />
-                    {/* Annotation boxes overlay */}
-                    <div style={{ position: 'absolute', left: displayTransform.offsetX, top: displayTransform.offsetY, transform: `scale(${displayTransform.scale})`, transformOrigin: 'top left', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
-                      {annotations.map((ann) => (
-                        <div
-                          key={ann.id}
-                          style={{
-                            position: 'absolute',
-                            left: ann.x,
-                            top: ann.y,
-                            width: ann.width,
-                            height: ann.height,
-                            border: `2px solid ${getClassColor(ann.classId)}`,
-                            backgroundColor: `${getClassColor(ann.classId)}33`,
-                            boxSizing: 'border-box',
-                            pointerEvents: 'auto',
-                            cursor: 'pointer',
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedAnnotation(ann.id);
-                          }}
-                        >
-                          <span style={{
-                            position: 'absolute',
-                            top: -20,
-                            left: 0,
-                            background: getClassColor(ann.classId),
-                            color: 'white',
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            fontSize: 11,
-                            whiteSpace: 'nowrap',
-                          }}>
-                            {ann.label}
-                          </span>
-                        </div>
-                      ))}
-                      {/* Current drawing box */}
-                      {drawState.isDrawing && getDrawRect() && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            left: getDrawRect()!.x,
-                            top: getDrawRect()!.y,
-                            width: getDrawRect()!.width,
-                            height: getDrawRect()!.height,
-                            border: `2px dashed ${getClassColor(selectedClassId)}`,
-                            backgroundColor: `${getClassColor(selectedClassId)}22`,
-                            boxSizing: 'border-box',
-                            pointerEvents: 'none',
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <ImageIcon size={64} />
-                    <p style={{ fontSize: 14 }}>{images[currentImage]?.name || '无图片'}</p>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Right Panel - Class Management */}
-          <div className="annotation-sidebar-right">
-            <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
-                <h4 style={{ fontSize: 13, color: 'var(--text-secondary)' }}>类别管理</h4>
-              </div>
-
-              {/* Add new class */}
-              <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-sm)' }}>
-                <input
-                  type="text"
-                  value={newClassName}
-                  onChange={(e) => setNewClassName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddClass()}
-                  placeholder="新类别名称"
-                  className="input"
-                  style={{ flex: 1, fontSize: 12, padding: '4px 8px' }}
-                />
-                <button className="btn btn-primary" onClick={handleAddClass} style={{ padding: '4px 8px' }}>
-                  <Plus size={14} />
-                </button>
-              </div>
-
-              {/* Class list */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
-                {classes.map((cls) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)' }}>
+                {annotations.map((ann) => (
                   <div
-                    key={cls.id}
-                    onClick={() => setSelectedClassId(cls.id)}
+                    key={ann.id}
+                    onClick={() => setSelectedAnnotation(ann.id)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--spacing-sm)',
                       padding: 'var(--spacing-sm)',
-                      background: selectedClassId === cls.id ? 'var(--bg-active)' : 'var(--bg-elevated)',
+                      background: selectedAnnotation === ann.id ? 'var(--bg-active)' : 'var(--bg-elevated)',
                       borderRadius: 'var(--radius-sm)',
+                      fontSize: 12,
                       cursor: 'pointer',
-                      borderLeft: `3px solid ${cls.color}`,
+                      borderLeft: `3px solid ${getClassColor(ann.classId)}`,
                     }}
                   >
-                    {editingClassId === cls.id ? (
-                      <>
-                        <input
-                          type="text"
-                          value={editingClassName}
-                          onChange={(e) => setEditingClassName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleUpdateClass(cls.id, editingClassName);
-                            if (e.key === 'Escape') setEditingClassId(null);
-                          }}
-                          autoFocus
-                          className="input"
-                          style={{ flex: 1, fontSize: 12, padding: '2px 6px' }}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); handleUpdateClass(cls.id, editingClassName); }} style={{ padding: 2 }}>
-                          <Check size={12} />
-                        </button>
-                        <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditingClassId(null); }} style={{ padding: 2 }}>
-                          <X size={12} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ width: 12, height: 12, borderRadius: 2, background: cls.color, flexShrink: 0 }} />
-                        <span style={{ flex: 1, fontSize: 13 }}>{cls.name}</span>
-                        <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditingClassId(cls.id); setEditingClassName(cls.name); }} style={{ padding: 2 }}>
-                          <Edit2 size={12} />
-                        </button>
-                        {classes.length > 1 && (
-                          <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); handleDeleteClass(cls.id); }} style={{ padding: 2 }}>
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </>
-                    )}
+                    <span style={{ color: getClassColor(ann.classId), fontWeight: 500 }}>{ann.label}</span>
+                    <span style={{ color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 11 }}>
+                      {Math.round(ann.x)}, {Math.round(ann.y)} {Math.round(ann.width)}x{Math.round(ann.height)}
+                    </span>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Main Canvas */}
+        <div className="annotation-main">
+          {isLoading ? (
+            <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <div style={{ width: 40, height: 40, border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>加载图片中...</p>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : error ? (
+            <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <FolderOpen size={48} style={{ color: 'var(--status-error)' }} />
+              <p style={{ color: 'var(--status-error)', fontSize: 14 }}>{error}</p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>请确保项目包含 images/train 或 images/val 文件夹</p>
+            </div>
+          ) : images.length === 0 ? (
+            <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <ImageIcon size={48} style={{ color: 'var(--text-tertiary)' }} />
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>未找到图片文件</p>
+              <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>请将图片放入 images/train 文件夹</p>
+            </div>
+          ) : (
+            <div
+              ref={containerRef}
+              style={{
+                width: '100%',
+                height: '100%',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: tool === 'select' ? (isDragging ? 'grabbing' : 'grab') : 'crosshair',
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseLeave}
+            >
+              {imageLoading ? (
+                <>
+                  <div style={{ width: 40, height: 40, border: '3px solid var(--border-default)', borderTopColor: 'var(--accent-primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                  <p style={{ fontSize: 14 }}>加载图片...</p>
+                </>
+              ) : currentImageData ? (
+                <div style={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img
+                    ref={imageRef}
+                    src={currentImageData}
+                    alt={images[currentImage]?.name}
+                    style={{
+                      position: 'absolute',
+                      left: displayTransform.offsetX,
+                      top: displayTransform.offsetY,
+                      width: imageDimensions?.width,
+                      height: imageDimensions?.height,
+                      transform: `scale(${displayTransform.scale})`,
+                      transformOrigin: 'top left',
+                      userSelect: 'none',
+                    }}
+                    draggable={false}
+                  />
+                  {/* Annotation boxes overlay */}
+                  <div style={{ position: 'absolute', left: displayTransform.offsetX, top: displayTransform.offsetY, transform: `scale(${displayTransform.scale})`, transformOrigin: 'top left', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
+                    {annotations.map((ann) => (
+                      <div
+                        key={ann.id}
+                        style={{
+                          position: 'absolute',
+                          left: ann.x,
+                          top: ann.y,
+                          width: ann.width,
+                          height: ann.height,
+                          border: `2px solid ${getClassColor(ann.classId)}`,
+                          backgroundColor: `${getClassColor(ann.classId)}33`,
+                          boxSizing: 'border-box',
+                          pointerEvents: 'auto',
+                          cursor: 'pointer',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedAnnotation(ann.id);
+                        }}
+                      >
+                        <span style={{
+                          position: 'absolute',
+                          top: -20,
+                          left: 0,
+                          background: getClassColor(ann.classId),
+                          color: 'white',
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          fontSize: 11,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {ann.label}
+                        </span>
+                      </div>
+                    ))}
+                    {/* Current drawing box */}
+                    {drawState.isDrawing && getDrawRect() && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: getDrawRect()!.x,
+                          top: getDrawRect()!.y,
+                          width: getDrawRect()!.width,
+                          height: getDrawRect()!.height,
+                          border: `2px dashed ${getClassColor(selectedClassId)}`,
+                          backgroundColor: `${getClassColor(selectedClassId)}22`,
+                          boxSizing: 'border-box',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <ImageIcon size={64} />
+                  <p style={{ fontSize: 14 }}>{images[currentImage]?.name || '无图片'}</p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel - Class Management */}
+        <div className="annotation-sidebar-right">
+          <div style={{ marginBottom: 'var(--spacing-lg)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
+              <h4 style={{ fontSize: 13, color: 'var(--text-secondary)' }}>类别管理</h4>
             </div>
 
-            <div>
-              <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
-                统计
-              </h4>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                <p>总标注数: {annotations.length}</p>
-                <p>类别数: {classes.length}</p>
-              </div>
+            {/* Add new class */}
+            <div style={{ display: 'flex', gap: 'var(--spacing-xs)', marginBottom: 'var(--spacing-sm)' }}>
+              <input
+                type="text"
+                value={newClassName}
+                onChange={(e) => setNewClassName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddClass()}
+                placeholder="新类别名称"
+                className="input"
+                style={{ flex: 1, fontSize: 12, padding: '4px 8px' }}
+              />
+              <button className="btn btn-primary" onClick={handleAddClass} style={{ padding: '4px 8px' }}>
+                <Plus size={14} />
+              </button>
+            </div>
+
+            {/* Class list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+              {classes.map((cls) => (
+                <div
+                  key={cls.id}
+                  onClick={() => setSelectedClassId(cls.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--spacing-sm)',
+                    padding: 'var(--spacing-sm)',
+                    background: selectedClassId === cls.id ? 'var(--bg-active)' : 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                    borderLeft: `3px solid ${cls.color}`,
+                  }}
+                >
+                  {editingClassId === cls.id ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editingClassName}
+                        onChange={(e) => setEditingClassName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleUpdateClass(cls.id, editingClassName);
+                          if (e.key === 'Escape') setEditingClassId(null);
+                        }}
+                        autoFocus
+                        className="input"
+                        style={{ flex: 1, fontSize: 12, padding: '2px 6px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); handleUpdateClass(cls.id, editingClassName); }} style={{ padding: 2 }}>
+                        <Check size={12} />
+                      </button>
+                      <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditingClassId(null); }} style={{ padding: 2 }}>
+                        <X size={12} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 12, height: 12, borderRadius: 2, background: cls.color, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13 }}>{cls.name}</span>
+                      <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditingClassId(cls.id); setEditingClassName(cls.name); }} style={{ padding: 2 }}>
+                        <Edit2 size={12} />
+                      </button>
+                      {classes.length > 1 && (
+                        <button className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); handleDeleteClass(cls.id); }} style={{ padding: 2 }}>
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+              统计
+            </h4>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+              <p>总标注数: {annotations.length}</p>
+              <p>类别数: {classes.length}</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Magnifier - outside annotation-canvas so position:fixed works correctly */}
+      {tool === 'draw' && magnifierPos && magnifierScreenPos && imageDimensions && (
+        <div
+          style={{
+            position: 'fixed',
+            left: magnifierScreenPos.x + 20,
+            top: magnifierScreenPos.y - 70,
+            width: 120,
+            height: 120,
+            background: '#333',
+            zIndex: 9999,
+            overflow: 'hidden',
+          }}
+        >
+          <img
+            src={currentImageData || ''}
+            alt=""
+            style={{
+              position: 'absolute',
+              width: imageDimensions.width * 8,
+              height: imageDimensions.height * 8,
+              left: -(magnifierPos.x - 7.5) * 8,
+              top: -(magnifierPos.y - 7.5) * 8,
+              imageRendering: 'pixelated',
+            }}
+          />
+          {/* Drawing rectangle in magnifier */}
+          {drawState.isDrawing && (
+            <div
+              style={{
+                position: 'absolute',
+                left: (Math.min(drawState.startX, drawState.currentX) - magnifierPos.x + 7.5) * 8,
+                top: (Math.min(drawState.startY, drawState.currentY) - magnifierPos.y + 7.5) * 8,
+                width: Math.abs(drawState.currentX - drawState.startX) * 8,
+                height: Math.abs(drawState.currentY - drawState.startY) * 8,
+                border: '2px solid #ff6b6b',
+                backgroundColor: 'rgba(255,107,107,0.3)',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+          {/* Crosshair in center */}
+          <div style={{
+            position: 'absolute',
+            left: 59,
+            top: 0,
+            width: 2,
+            height: 120,
+            background: 'rgba(255,255,255,0.5)',
+            pointerEvents: 'none',
+          }} />
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            top: 59,
+            width: 120,
+            height: 2,
+            background: 'rgba(255,255,255,0.5)',
+            pointerEvents: 'none',
+          }} />
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0,0,0,0.7)', color: 'white', fontSize: 10, padding: 2 }}>
+            {Math.round(magnifierPos.x)},{Math.round(magnifierPos.y)} 8x
+          </div>
+        </div>
+      )}
     </div>
   );
 }
