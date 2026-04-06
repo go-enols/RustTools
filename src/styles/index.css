@@ -1847,7 +1847,6 @@ body {
 }
 
 .file-viewer-image {
-  object-fit: contain;
   max-width: none;
   max-height: none;
 }

@@ -163,8 +163,10 @@ export default function AnnotationPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentImage, images.length, selectedAnnotation]);
 
-  // Mouse wheel zoom
+  // Mouse wheel zoom - re-run when currentImageData changes so we can attach to the container
   useEffect(() => {
+    if (!currentImageData) return;
+
     const container = containerRef.current;
     if (!container) return;
 
@@ -180,22 +182,35 @@ export default function AnnotationPage() {
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
-  }, []);
+  }, [currentImageData]);
 
-  // Track container size for fill calculation
+  // Track container size for fill calculation - depends on currentImageData to re-run when container mounts
   useEffect(() => {
+    if (!currentImageData) return;
+
     const container = containerRef.current;
     if (!container) return;
 
+    // Use requestAnimationFrame to ensure DOM is fully laid out
+    let rafId: number;
     const updateSize = () => {
-      setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+      rafId = requestAnimationFrame(() => {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        if (width > 0 && height > 0) {
+          setContainerSize({ width, height });
+        }
+      });
     };
 
     updateSize();
     const observer = new ResizeObserver(updateSize);
     observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [currentImageData]);
 
   // Classes from project config
   const classes = currentProject?.classes.map((name, idx) => ({
@@ -436,7 +451,6 @@ export default function AnnotationPage() {
                       src={currentImageData}
                       alt={images[currentImage]?.name}
                       style={{
-                        objectFit: 'contain',
                         maxWidth: 'none',
                         maxHeight: 'none',
                         transform: imageDimensions && containerSize

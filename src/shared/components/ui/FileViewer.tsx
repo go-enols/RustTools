@@ -142,20 +142,26 @@ export default function FileViewer({ fileName, filePath, onClose }: FileViewerPr
     return () => container.removeEventListener('wheel', handleWheel);
   }, [imageUrl]);
 
-  // Track container size for fill calculation
+  // Track container size for fill calculation - depends on imageUrl to re-run when container mounts
   useEffect(() => {
+    if (!imageUrl) return;
+
     const container = containerRef.current;
     if (!container) return;
 
     const updateSize = () => {
-      setContainerSize({ width: container.clientWidth, height: container.clientHeight });
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      if (width > 0 && height > 0) {
+        setContainerSize({ width, height });
+      }
     };
 
     updateSize();
     const observer = new ResizeObserver(updateSize);
     observer.observe(container);
     return () => observer.disconnect();
-  }, []);
+  }, [imageUrl]);
 
   const handleContentChange = (newContent: string) => {
     setContent(newContent);
