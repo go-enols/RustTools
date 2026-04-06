@@ -4,6 +4,7 @@ import {
   openProject as apiOpenProject,
   getRecentProjects as apiGetRecentProjects,
   saveProject as apiSaveProject,
+  importDataset as apiImportDataset,
   selectFolder,
   ProjectConfig,
 } from '../api';
@@ -43,6 +44,7 @@ interface WorkspaceState {
     }
   ) => Promise<void>;
 
+  importDataset: (datasetPath: string) => Promise<boolean>;
   openProject: (project: Project) => void;
   openProjectFromPath: (projectPath: string) => Promise<boolean>;
   closeProject: () => void;
@@ -159,6 +161,44 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       return true;
     } catch (error) {
       set({ error: error instanceof Error ? error.message : '打开项目失败', isLoading: false });
+      return false;
+    }
+  },
+
+  importDataset: async (datasetPath: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await apiImportDataset(datasetPath);
+      if (!response.success || !response.data) {
+        throw new Error(response.error || '导入数据集失败');
+      }
+
+      const config = response.data;
+      const project: Project = {
+        id: crypto.randomUUID(),
+        name: config.name,
+        path: config.path,
+        yoloVersion: config.yolo_version,
+        classes: config.classes,
+        trainSplit: config.train_split,
+        valSplit: config.val_split,
+        imageSize: config.image_size,
+        description: config.description,
+        createdAt: new Date(),
+        images: config.images,
+        labels: config.labels,
+      };
+
+      set((state) => ({
+        currentProject: project,
+        recentProjects: [project, ...state.recentProjects.filter((p) => p.path !== datasetPath)].slice(0, 10),
+        isLoading: false,
+      }));
+
+      localStorage.setItem('recentProjects', JSON.stringify(get().recentProjects));
+      return true;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '导入数据集失败', isLoading: false });
       return false;
     }
   },

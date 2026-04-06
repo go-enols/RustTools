@@ -4,6 +4,7 @@ import { useWorkspaceStore, Project } from '../../core/stores/workspaceStore';
 import { useToast } from '../../shared/hooks/useToast';
 import YoloGuideModal from '../../modules/yolo/components/YoloGuideModal';
 import NewProjectModal from '../../modules/yolo/components/NewProjectModal';
+import ImportDatasetModal from '../../modules/yolo/components/ImportDatasetModal';
 import { Lock, Sparkles, ArrowRight } from 'lucide-react';
 
 export default function HubPage() {
@@ -13,6 +14,7 @@ export default function HubPage() {
   const { error: showError } = useToast();
   const [showYoloGuide, setShowYoloGuide] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showImportDataset, setShowImportDataset] = useState(false);
 
   const handleModuleClick = (moduleId: string) => {
     if (moduleId === 'yolo') {
@@ -46,8 +48,18 @@ export default function HubPage() {
     setShowNewProject(true);
   };
 
+  const handleImportDataset = () => {
+    setShowImportDataset(true);
+  };
+
   const handleProjectCreated = () => {
     setShowNewProject(false);
+    setShowYoloGuide(false);
+    navigateToModule('yolo');
+  };
+
+  const handleDatasetImported = () => {
+    setShowImportDataset(false);
     setShowYoloGuide(false);
     navigateToModule('yolo');
   };
@@ -104,6 +116,7 @@ export default function HubPage() {
           onClose={() => setShowYoloGuide(false)}
           onOpenProject={handleOpenProject}
           onNewProject={handleNewProject}
+          onImportDataset={handleImportDataset}
           recentProjects={recentProjects}
           onSelectRecentProject={handleSelectRecentProject}
         />
@@ -114,6 +127,14 @@ export default function HubPage() {
         <NewProjectModal
           onClose={() => setShowNewProject(false)}
           onCreated={handleProjectCreated}
+        />
+      )}
+
+      {/* Import Dataset Modal */}
+      {showImportDataset && (
+        <ImportDatasetModal
+          onClose={() => setShowImportDataset(false)}
+          onImported={handleDatasetImported}
         />
       )}
     </div>

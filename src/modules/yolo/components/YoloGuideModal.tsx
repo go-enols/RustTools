@@ -1,10 +1,11 @@
-import { Sparkles, FolderOpen, Plus, ArrowRight, X, Clock } from 'lucide-react';
+import { Sparkles, FolderOpen, Plus, ArrowRight, X, Clock, Upload } from 'lucide-react';
 import type { Project } from '../../../core/stores/workspaceStore';
 
 interface YoloGuideModalProps {
   onClose: () => void;
   onOpenProject: () => void;
   onNewProject: () => void;
+  onImportDataset: () => void;
   recentProjects?: Project[];
   onSelectRecentProject?: (project: Project) => void;
 }
@@ -13,6 +14,7 @@ export default function YoloGuideModal({
   onClose,
   onOpenProject,
   onNewProject,
+  onImportDataset,
   recentProjects = [],
   onSelectRecentProject,
 }: YoloGuideModalProps) {
@@ -50,6 +52,17 @@ export default function YoloGuideModal({
             <div className="guide-action-content">
               <span className="guide-action-title">打开项目</span>
               <span className="guide-action-desc">选择已有的项目文件夹</span>
+            </div>
+            <ArrowRight size={18} className="guide-action-arrow" />
+          </button>
+
+          <button className="guide-action-btn" onClick={onImportDataset}>
+            <div className="guide-action-icon">
+              <Upload size={22} />
+            </div>
+            <div className="guide-action-content">
+              <span className="guide-action-title">导入数据集</span>
+              <span className="guide-action-desc">从已有 YOLO 数据集导入</span>
             </div>
             <ArrowRight size={18} className="guide-action-arrow" />
           </button>

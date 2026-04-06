@@ -29,7 +29,7 @@ export {
 } from './file';
 
 // Project management
-export { createProject, openProject, getRecentProjects, saveProject } from './project';
+export { createProject, openProject, getRecentProjects, saveProject, importDataset } from './project';
 
 // Dataset management
 export {
