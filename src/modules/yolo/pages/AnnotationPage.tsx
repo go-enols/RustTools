@@ -93,6 +93,23 @@ export default function AnnotationPage() {
     return images.filter(img => unlabeledImages.has(img.path));
   }, [images, showUnlabeled, unlabeledImages]);
 
+  // Calculate display transform based on container, image size and zoom
+  const displayTransform = useMemo(() => {
+    if (!imageDimensions || !containerSize) {
+      return { scale: 1, offsetX: 0, offsetY: 0 };
+    }
+    const fillScale = Math.min(
+      containerSize.width / imageDimensions.width,
+      containerSize.height / imageDimensions.height
+    );
+    const scale = fillScale * (zoom / 100);
+    const scaledWidth = imageDimensions.width * scale;
+    const scaledHeight = imageDimensions.height * scale;
+    const offsetX = (containerSize.width - scaledWidth) / 2 + imagePosition.x;
+    const offsetY = (containerSize.height - scaledHeight) / 2 + imagePosition.y;
+    return { scale, offsetX, offsetY };
+  }, [imageDimensions, containerSize, zoom, imagePosition]);
+
   // Generate consistent color for class
   function getClassColor(classId: number): string {
     const colors = [
@@ -351,19 +368,11 @@ export default function AnnotationPage() {
         imgY: imagePosition.y,
       };
     } else if (tool === 'draw' && imageDimensions && containerSize) {
-      // Start drawing
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      // Calculate position relative to image
-      const fillScale = Math.min(containerSize.width / imageDimensions.width, containerSize.height / imageDimensions.height);
-      const scaledWidth = imageDimensions.width * fillScale * (zoom / 100);
-      const scaledHeight = imageDimensions.height * fillScale * (zoom / 100);
-      const offsetX = (containerSize.width - scaledWidth) / 2 + imagePosition.x;
-      const offsetY = (containerSize.height - scaledHeight) / 2 + imagePosition.y;
-
-      const mouseX = (e.clientX - rect.left - offsetX) / (fillScale * (zoom / 100));
-      const mouseY = (e.clientY - rect.top - offsetY) / (fillScale * (zoom / 100));
+      const mouseX = (e.clientX - rect.left - displayTransform.offsetX) / displayTransform.scale;
+      const mouseY = (e.clientY - rect.top - displayTransform.offsetY) / displayTransform.scale;
 
       setDrawState({
         isDrawing: true,
@@ -373,7 +382,7 @@ export default function AnnotationPage() {
         currentY: mouseY,
       });
     }
-  }, [tool, imagePosition, imageDimensions, containerSize, zoom]);
+  }, [tool, imagePosition, imageDimensions, containerSize, displayTransform]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging && tool === 'select') {
@@ -387,14 +396,8 @@ export default function AnnotationPage() {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const fillScale = Math.min(containerSize.width / imageDimensions.width, containerSize.height / imageDimensions.height);
-      const scaledWidth = imageDimensions.width * fillScale * (zoom / 100);
-      const scaledHeight = imageDimensions.height * fillScale * (zoom / 100);
-      const offsetX = (containerSize.width - scaledWidth) / 2 + imagePosition.x;
-      const offsetY = (containerSize.height - scaledHeight) / 2 + imagePosition.y;
-
-      const mouseX = (e.clientX - rect.left - offsetX) / (fillScale * (zoom / 100));
-      const mouseY = (e.clientY - rect.top - offsetY) / (fillScale * (zoom / 100));
+      const mouseX = (e.clientX - rect.left - displayTransform.offsetX) / displayTransform.scale;
+      const mouseY = (e.clientY - rect.top - displayTransform.offsetY) / displayTransform.scale;
 
       setDrawState(prev => ({
         ...prev,
@@ -402,7 +405,7 @@ export default function AnnotationPage() {
         currentY: mouseY,
       }));
     }
-  }, [isDragging, drawState.isDrawing, tool, imageDimensions, containerSize, zoom, imagePosition]);
+  }, [isDragging, drawState.isDrawing, tool, imageDimensions, containerSize, displayTransform]);
 
   const handleMouseUp = useCallback(() => {
     if (isDragging) {
@@ -681,16 +684,19 @@ export default function AnnotationPage() {
                       src={currentImageData}
                       alt={filteredImages[currentImage]?.name}
                       style={{
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                        transform: `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${zoom / 100})`,
-                        transformOrigin: 'center center',
+                        position: 'absolute',
+                        left: displayTransform.offsetX,
+                        top: displayTransform.offsetY,
+                        width: imageDimensions?.width,
+                        height: imageDimensions?.height,
+                        transform: `scale(${displayTransform.scale})`,
+                        transformOrigin: 'top left',
                         userSelect: 'none',
                       }}
                       draggable={false}
                     />
                     {/* Annotation boxes overlay */}
-                    <div style={{ position: 'absolute', top: '50%', left: '50%', transform: `translate(-50%, -50%) translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${zoom / 100})`, transformOrigin: 'center center', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
+                    <div style={{ position: 'absolute', left: displayTransform.offsetX, top: displayTransform.offsetY, transform: `scale(${displayTransform.scale})`, transformOrigin: 'top left', pointerEvents: 'none', width: imageDimensions?.width, height: imageDimensions?.height }}>
                       {annotations.map((ann) => (
                         <div
                           key={ann.id}
