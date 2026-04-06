@@ -54,6 +54,7 @@ export default function AnnotationPage() {
   const [selectedAnnotation, setSelectedAnnotation] = useState<string | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<number>(0);
   const [showUnlabeled, setShowUnlabeled] = useState(false);
+  const [unlabeledImages, setUnlabeledImages] = useState<Set<string>>(new Set());
   const [zoom, setZoom] = useState(100);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +86,12 @@ export default function AnnotationPage() {
     name,
     color: getClassColor(idx),
   })) || [], [currentProject?.classes]);
+
+  // Filtered images based on showUnlabeled
+  const filteredImages = useMemo(() => {
+    if (!showUnlabeled) return images;
+    return images.filter(img => unlabeledImages.has(img.path));
+  }, [images, showUnlabeled, unlabeledImages]);
 
   // Generate consistent color for class
   function getClassColor(classId: number): string {
@@ -141,14 +148,14 @@ export default function AnnotationPage() {
   // Load image data and annotations when current image changes
   useEffect(() => {
     const loadImageData = async () => {
-      if (images.length === 0 || !images[currentImage]) {
+      if (filteredImages.length === 0 || !filteredImages[currentImage]) {
         setCurrentImageData(null);
         setAnnotations([]);
         return;
       }
 
       setImageLoading(true);
-      const img = images[currentImage];
+      const img = filteredImages[currentImage];
       const result = await readBinaryFile(img.path);
 
       if (result.success && result.data) {
@@ -166,7 +173,7 @@ export default function AnnotationPage() {
         // Load existing annotations
         const labelPath = getLabelPath(img.path);
         const labelResult = await loadAnnotation(labelPath);
-        if (labelResult.success && labelResult.data) {
+        if (labelResult.success && labelResult.data && labelResult.data.length > 0) {
           const loadedAnnotations: AnnotationItem[] = labelResult.data.map((ann, idx) => ({
             id: `ann-${Date.now()}-${idx}`,
             label: classes[ann.class_id]?.name || `Class ${ann.class_id}`,
@@ -177,6 +184,19 @@ export default function AnnotationPage() {
             height: ann.height * imgEl.naturalHeight,
           }));
           setAnnotations(loadedAnnotations);
+          // Mark as labeled
+          setUnlabeledImages(prev => {
+            const next = new Set(prev);
+            next.delete(img.path);
+            return next;
+          });
+        } else {
+          // Mark as unlabeled
+          setUnlabeledImages(prev => {
+            const next = new Set(prev);
+            next.add(img.path);
+            return next;
+          });
         }
       } else {
         setCurrentImageData(null);
@@ -188,13 +208,22 @@ export default function AnnotationPage() {
     };
 
     loadImageData();
-  }, [currentImage, images, currentProject, classes, getLabelPath]);
+  }, [currentImage, filteredImages, currentProject, classes, getLabelPath]);
+
+  // Reset currentImage when filteredImages changes and currentImage is out of bounds
+  useEffect(() => {
+    if (currentImage >= filteredImages.length && filteredImages.length > 0) {
+      setCurrentImage(filteredImages.length - 1);
+    } else if (filteredImages.length === 0) {
+      setCurrentImage(0);
+    }
+  }, [filteredImages, currentImage]);
 
   // Save annotations when switching images
   const saveCurrentAnnotations = useCallback(async () => {
-    if (!currentProject || !imageDimensions || images.length === 0 || !images[currentImage]) return;
+    if (!currentProject || !imageDimensions || filteredImages.length === 0 || !filteredImages[currentImage]) return;
 
-    const labelPath = getLabelPath(images[currentImage].path);
+    const labelPath = getLabelPath(filteredImages[currentImage].path);
     const yoloAnnotations: YoloAnnotation[] = annotations.map(ann => ({
       class_id: ann.classId,
       x_center: (ann.x + ann.width / 2) / imageDimensions.width,
@@ -234,7 +263,7 @@ export default function AnnotationPage() {
           }
           break;
         case 'd':
-          if (currentImage < images.length - 1) {
+          if (currentImage < filteredImages.length - 1) {
             saveCurrentAnnotations();
             setCurrentImage(prev => prev + 1);
           }
@@ -261,7 +290,7 @@ export default function AnnotationPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentImage, images.length, selectedAnnotation, saveCurrentAnnotations]);
+  }, [currentImage, filteredImages.length, selectedAnnotation, saveCurrentAnnotations]);
 
   // Mouse wheel zoom
   useEffect(() => {
@@ -506,7 +535,7 @@ export default function AnnotationPage() {
         <div className="annotation-tool-btn" onClick={() => currentImage > 0 && setCurrentImage(prev => prev - 1)} title="上一张 (A)">
           <ChevronLeft size={20} />
         </div>
-        <div className="annotation-tool-btn" onClick={() => currentImage < images.length - 1 && setCurrentImage(prev => prev + 1)} title="下一张 (D)">
+        <div className="annotation-tool-btn" onClick={() => currentImage < filteredImages.length - 1 && setCurrentImage(prev => prev + 1)} title="下一张 (D)">
           <ChevronRight size={20} />
         </div>
         <div className="annotation-tool-btn" onClick={() => setZoom(prev => Math.min(prev + 25, 400))} title="放大">
@@ -529,7 +558,7 @@ export default function AnnotationPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-lg)' }}>
               <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
-                进度: {currentImage + 1}/{images.length} ({images.length > 0 ? (((currentImage + 1) / images.length) * 100).toFixed(1) : 0}%)
+                进度: {currentImage + 1}/{filteredImages.length} ({filteredImages.length > 0 ? (((currentImage + 1) / filteredImages.length) * 100).toFixed(1) : 0}%)
               </span>
               <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
                 标注: {annotations.length}
@@ -617,7 +646,7 @@ export default function AnnotationPage() {
                 <p style={{ color: 'var(--status-error)', fontSize: 14 }}>{error}</p>
                 <p style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>请确保项目包含 images/train 或 images/val 文件夹</p>
               </div>
-            ) : images.length === 0 ? (
+            ) : filteredImages.length === 0 ? (
               <div style={{ width: '80%', height: '80%', background: 'var(--bg-surface)', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
                 <ImageIcon size={48} style={{ color: 'var(--text-tertiary)' }} />
                 <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>未找到图片文件</p>
@@ -650,7 +679,7 @@ export default function AnnotationPage() {
                     <img
                       ref={imageRef}
                       src={currentImageData}
-                      alt={images[currentImage]?.name}
+                      alt={filteredImages[currentImage]?.name}
                       style={{
                         maxWidth: '100%',
                         maxHeight: '100%',
@@ -718,7 +747,7 @@ export default function AnnotationPage() {
                 ) : (
                   <>
                     <ImageIcon size={64} />
-                    <p style={{ fontSize: 14 }}>{images[currentImage]?.name || '无图片'}</p>
+                    <p style={{ fontSize: 14 }}>{filteredImages[currentImage]?.name || '无图片'}</p>
                   </>
                 )}
               </div>
