@@ -3,6 +3,22 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct YoloAnnotation {
+    pub class_id: usize,
+    pub x_center: f64,
+    pub y_center: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AnnotationResponse {
+    pub success: bool,
+    pub data: Option<Vec<YoloAnnotation>>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectConfig {
     pub name: String,
     pub path: String,
@@ -264,5 +280,152 @@ fn parse_project_yaml(content: &str, project_path: &PathBuf) -> Result<ProjectCo
             train: labels_train,
             val: labels_val,
         },
+    })
+}
+
+/// Update project classes in project.yaml
+#[tauri::command]
+pub async fn update_classes(
+    project_path: String,
+    classes: Vec<String>,
+) -> Result<ProjectResponse, String> {
+    let path = PathBuf::from(&project_path);
+    let config_path = path.join("project.yaml");
+
+    // Read existing content
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+
+    // Rebuild YAML with updated classes
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines: Vec<String> = Vec::new();
+    let mut in_classes = false;
+    let mut classes_found = false;
+
+    for line in lines {
+        if line.trim() == "classes:" {
+            in_classes = true;
+            new_lines.push(line.to_string());
+            // Add new classes
+            for class in &classes {
+                new_lines.push(format!("  - {}", class));
+            }
+            classes_found = true;
+        } else if in_classes && line.starts_with("- ") {
+            // Skip old classes, already added new ones
+            continue;
+        } else if in_classes && !line.trim().starts_with("- ") && !line.trim().is_empty() {
+            // Exited classes section
+            in_classes = false;
+            new_lines.push(line.to_string());
+        } else {
+            new_lines.push(line.to_string());
+        }
+    }
+
+    // If no classes section existed, add it after name
+    if !classes_found {
+        let mut final_lines: Vec<String> = Vec::new();
+        for line in new_lines {
+            final_lines.push(line.clone());
+            if line.starts_with("name:") {
+                final_lines.push("classes:".to_string());
+                for class in &classes {
+                    final_lines.push(format!("  - {}", class));
+                }
+            }
+        }
+        new_lines = final_lines;
+    }
+
+    let new_content = new_lines.join("\n");
+
+    // Write back
+    fs::write(&config_path, new_content)
+        .map_err(|e| format!("保存配置文件失败: {}", e))?;
+
+    Ok(ProjectResponse { success: true, data: None, error: None })
+}
+
+/// Load annotations from a YOLO label file
+#[tauri::command]
+pub async fn load_annotation(
+    label_path: String,
+) -> Result<AnnotationResponse, String> {
+    let path = PathBuf::from(&label_path);
+
+    if !path.exists() {
+        return Ok(AnnotationResponse {
+            success: true,
+            data: Some(Vec::new()),
+            error: None,
+        });
+    }
+
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("读取标注文件失败: {}", e))?;
+
+    let annotations: Vec<YoloAnnotation> = content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let parts: Vec<f64> = line
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            if parts.len() >= 5 {
+                Some(YoloAnnotation {
+                    class_id: parts[0] as usize,
+                    x_center: parts[1],
+                    y_center: parts[2],
+                    width: parts[3],
+                    height: parts[4],
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(AnnotationResponse {
+        success: true,
+        data: Some(annotations),
+        error: None,
+    })
+}
+
+/// Save annotations to a YOLO label file
+#[tauri::command]
+pub async fn save_annotation(
+    label_path: String,
+    annotations: Vec<YoloAnnotation>,
+) -> Result<AnnotationResponse, String> {
+    let path = PathBuf::from(&label_path);
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("创建目录失败: {}", e))?;
+    }
+
+    // Convert to YOLO format (normalized coordinates)
+    let content: String = annotations
+        .iter()
+        .map(|ann| {
+            format!(
+                "{} {:.6} {:.6} {:.6} {:.6}",
+                ann.class_id, ann.x_center, ann.y_center, ann.width, ann.height
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    fs::write(&path, content)
+        .map_err(|e| format!("保存标注文件失败: {}", e))?;
+
+    Ok(AnnotationResponse {
+        success: true,
+        data: None,
+        error: None,
     })
 }

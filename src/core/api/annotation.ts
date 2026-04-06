@@ -75,3 +75,69 @@ export async function deleteClass(classId: number): Promise<ApiResponse<void>> {
     return { success: false, error: String(error) };
   }
 }
+
+// YOLO Project Classes Management
+
+export interface YoloAnnotation {
+  class_id: number;
+  x_center: number;
+  y_center: number;
+  width: number;
+  height: number;
+}
+
+export interface UpdateClassesResponse {
+  success: boolean;
+  data?: never;
+  error?: string;
+}
+
+export interface LoadAnnotationResponse {
+  success: boolean;
+  data?: YoloAnnotation[];
+  error?: string;
+}
+
+/**
+ * Update project classes in project.yaml
+ */
+export async function updateClasses(
+  projectPath: string,
+  classes: string[]
+): Promise<UpdateClassesResponse> {
+  try {
+    return await invoke<UpdateClassesResponse>('update_classes', { projectPath, classes });
+  } catch (error) {
+    console.error('[API] updateClasses error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Load annotations from a YOLO label file
+ */
+export async function loadAnnotation(
+  labelPath: string
+): Promise<LoadAnnotationResponse> {
+  try {
+    return await invoke<LoadAnnotationResponse>('load_annotation', { labelPath });
+  } catch (error) {
+    console.error('[API] loadAnnotation error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Save annotations to a YOLO label file
+ */
+export async function saveAnnotation(
+  labelPath: string,
+  annotations: YoloAnnotation[]
+): Promise<UpdateClassesResponse> {
+  try {
+    return await invoke<UpdateClassesResponse>('save_annotation', { labelPath, annotations });
+  } catch (error) {
+    console.error('[API] saveAnnotation error:', error);
+    return { success: false, error: String(error) };
+  }
+}

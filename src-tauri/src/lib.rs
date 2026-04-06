@@ -13,6 +13,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             modules::yolo::commands::project_create,
             modules::yolo::commands::project_open,
+            modules::yolo::commands::update_classes,
+            modules::yolo::commands::load_annotation,
+            modules::yolo::commands::save_annotation,
             // File operations
             core::commands::read_text_file,
             core::commands::read_binary_file,
