@@ -87,11 +87,12 @@ export default function AnnotationPage() {
     color: getClassColor(idx),
   })) || [], [currentProject?.classes]);
 
-  // Filtered images based on showUnlabeled
+  // Filtered images based on showUnlabeled - current image is always visible
   const filteredImages = useMemo(() => {
     if (!showUnlabeled) return images;
-    return images.filter(img => unlabeledImages.has(img.path));
-  }, [images, showUnlabeled, unlabeledImages]);
+    const currentPath = images[currentImage]?.path;
+    return images.filter(img => unlabeledImages.has(img.path) || img.path === currentPath);
+  }, [images, showUnlabeled, unlabeledImages, currentImage]);
 
   // Calculate display transform based on container, image size and zoom
   const displayTransform = useMemo(() => {
@@ -225,7 +226,7 @@ export default function AnnotationPage() {
     };
 
     loadImageData();
-  }, [currentImage, filteredImages, currentProject, classes, getLabelPath]);
+  }, [currentImage, images, currentProject, classes, getLabelPath]);
 
   // Reset currentImage when filteredImages changes and currentImage is out of bounds
   useEffect(() => {
@@ -236,12 +237,12 @@ export default function AnnotationPage() {
     }
   }, [filteredImages, currentImage]);
 
-  // Save annotations when switching images
-  const saveCurrentAnnotations = useCallback(async () => {
-    if (!currentProject || !imageDimensions || filteredImages.length === 0 || !filteredImages[currentImage]) return;
+  // Save annotations when switching images - receives annotations as parameter to avoid stale closure
+  const saveCurrentAnnotations = useCallback(async (annotationsToSave: AnnotationItem[]) => {
+    if (!currentProject || !imageDimensions || images.length === 0 || !images[currentImage]) return;
 
-    const labelPath = getLabelPath(filteredImages[currentImage].path);
-    const yoloAnnotations: YoloAnnotation[] = annotations.map(ann => ({
+    const labelPath = getLabelPath(images[currentImage].path);
+    const yoloAnnotations: YoloAnnotation[] = annotationsToSave.map(ann => ({
       class_id: ann.classId,
       x_center: (ann.x + ann.width / 2) / imageDimensions.width,
       y_center: (ann.y + ann.height / 2) / imageDimensions.height,
@@ -250,14 +251,15 @@ export default function AnnotationPage() {
     }));
 
     await saveAnnotation(labelPath, yoloAnnotations);
-  }, [currentProject, imageDimensions, images, currentImage, annotations, getLabelPath]);
+  }, [currentProject, imageDimensions, images, currentImage, getLabelPath]);
 
-  // Save when switching images
+  // Save when switching images - save BEFORE clearing annotations
   useEffect(() => {
     return () => {
-      saveCurrentAnnotations();
+      // Save with current annotations from the state at this moment
+      saveCurrentAnnotations(annotations);
     };
-  }, [currentImage, saveCurrentAnnotations]);
+  }, [currentImage, annotations, saveCurrentAnnotations]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -275,20 +277,32 @@ export default function AnnotationPage() {
           break;
         case 'a':
           if (currentImage > 0) {
-            saveCurrentAnnotations();
+            saveCurrentAnnotations(annotations);
             setCurrentImage(prev => prev - 1);
           }
           break;
         case 'd':
           if (currentImage < filteredImages.length - 1) {
-            saveCurrentAnnotations();
+            saveCurrentAnnotations(annotations);
             setCurrentImage(prev => prev + 1);
           }
           break;
         case 'delete':
         case 'backspace':
           if (selectedAnnotation) {
-            setAnnotations(prev => prev.filter(ann => ann.id !== selectedAnnotation));
+            const currentPath = images[currentImage]?.path;
+            setAnnotations(prev => {
+              const newAnnotations = prev.filter(ann => ann.id !== selectedAnnotation);
+              // If no annotations left, mark as unlabeled
+              if (newAnnotations.length === 0 && currentPath) {
+                setUnlabeledImages(unlabeled => {
+                  const next = new Set(unlabeled);
+                  next.add(currentPath);
+                  return next;
+                });
+              }
+              return newAnnotations;
+            });
             setSelectedAnnotation(null);
           }
           break;
@@ -299,7 +313,7 @@ export default function AnnotationPage() {
         case 's':
           if (e.ctrlKey || e.metaKey) {
             e.preventDefault();
-            saveCurrentAnnotations();
+            saveCurrentAnnotations(annotations);
           }
           break;
       }
@@ -430,6 +444,16 @@ export default function AnnotationPage() {
         };
 
         setAnnotations(prev => [...prev, newAnnotation]);
+
+        // Mark as labeled in unlabeled set
+        const currentPath = images[currentImage]?.path;
+        if (currentPath) {
+          setUnlabeledImages(prev => {
+            const next = new Set(prev);
+            next.delete(currentPath);
+            return next;
+          });
+        }
       }
 
       setDrawState({
@@ -444,10 +468,22 @@ export default function AnnotationPage() {
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedAnnotation) {
-      setAnnotations(prev => prev.filter(ann => ann.id !== selectedAnnotation));
+      const currentPath = images[currentImage]?.path;
+      setAnnotations(prev => {
+        const newAnnotations = prev.filter(ann => ann.id !== selectedAnnotation);
+        // If no annotations left, mark as unlabeled
+        if (newAnnotations.length === 0 && currentPath) {
+          setUnlabeledImages(unlabeled => {
+            const next = new Set(unlabeled);
+            next.add(currentPath);
+            return next;
+          });
+        }
+        return newAnnotations;
+      });
       setSelectedAnnotation(null);
     }
-  }, [selectedAnnotation]);
+  }, [selectedAnnotation, images, currentImage]);
 
   // Get current drawing rect for display
   const getDrawRect = () => {
@@ -532,7 +568,7 @@ export default function AnnotationPage() {
           <Square size={20} />
         </div>
         <div style={{ flex: 1 }} />
-        <div className="annotation-tool-btn" onClick={() => { saveCurrentAnnotations(); }} title="保存 (Ctrl+S)">
+        <div className="annotation-tool-btn" onClick={() => { saveCurrentAnnotations(annotations); }} title="保存 (Ctrl+S)">
           <Save size={20} />
         </div>
         <div className="annotation-tool-btn" onClick={() => currentImage > 0 && setCurrentImage(prev => prev - 1)} title="上一张 (A)">
