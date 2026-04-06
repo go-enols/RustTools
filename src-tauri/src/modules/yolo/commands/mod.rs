@@ -141,7 +141,8 @@ labels:
 #[tauri::command]
 pub async fn project_open(project_path: String) -> Result<ProjectResponse, String> {
     let path = PathBuf::from(&project_path);
-    let config_path = path.join("project.yaml");
+    let project_yaml_path = path.join("project.yaml");
+    let data_yaml_path = path.join("data.yaml");
 
     // Check if project directory exists
     if !path.exists() {
@@ -152,134 +153,89 @@ pub async fn project_open(project_path: String) -> Result<ProjectResponse, Strin
         });
     }
 
-    // Check if config file exists
-    if !config_path.exists() {
+    // Try project.yaml first, then data.yaml
+    let (yaml_content, is_data_yaml) = if project_yaml_path.exists() {
+        (
+            fs::read_to_string(&project_yaml_path)
+                .map_err(|e| format!("读取project.yaml失败: {}", e))?,
+            false,
+        )
+    } else if data_yaml_path.exists() {
+        (
+            fs::read_to_string(&data_yaml_path)
+                .map_err(|e| format!("读取data.yaml失败: {}", e))?,
+            true,
+        )
+    } else {
         return Ok(ProjectResponse {
             success: false,
             data: None,
-            error: Some("不是有效的YOLO项目目录（缺少project.yaml）".to_string()),
+            error: Some("不是有效的YOLO项目目录（缺少project.yaml或data.yaml）".to_string()),
         });
+    };
+
+    // Parse the YAML to get dataset info
+    let dataset_info = parse_dataset_yaml(&yaml_content, &path)?;
+
+    // Create project config
+    let project_config = ProjectConfig {
+        name: dataset_info.name.clone(),
+        path: path.to_string_lossy().to_string(),
+        yolo_version: dataset_info.yolo_version.clone(),
+        classes: dataset_info.classes.clone(),
+        train_split: dataset_info.train_split,
+        val_split: dataset_info.val_split,
+        image_size: dataset_info.image_size,
+        description: Some(format!("项目路径: {}", project_path)),
+        images: DatasetPaths {
+            train: "images/train".to_string(),
+            val: "images/val".to_string(),
+        },
+        labels: DatasetPaths {
+            train: "labels/train".to_string(),
+            val: "labels/val".to_string(),
+        },
+    };
+
+    // If opened from data.yaml, create project.yaml
+    if is_data_yaml {
+        let yaml_out_content = format!(
+            r#"name: {}
+yolo_version: {}
+description: 项目路径: {}
+
+classes:
+{}
+
+train_split: {}
+val_split: {}
+image_size: {}
+
+images:
+  train: images/train
+  val: images/val
+
+labels:
+  train: labels/train
+  val: labels/val
+"#,
+            project_config.name,
+            project_config.yolo_version,
+            project_path,
+            project_config.classes.iter().map(|c| format!("  - {}", c)).collect::<Vec<_>>().join("\n"),
+            project_config.train_split,
+            project_config.val_split,
+            project_config.image_size,
+        );
+
+        fs::write(&project_yaml_path, yaml_out_content)
+            .map_err(|e| format!("保存project.yaml失败: {}", e))?;
     }
-
-    // Read and parse config file
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取项目配置失败: {}", e))?;
-
-    // Simple YAML parsing (in production, use a proper YAML crate)
-    let config = parse_project_yaml(&content, &path)?;
 
     Ok(ProjectResponse {
         success: true,
-        data: Some(config),
+        data: Some(project_config),
         error: None,
-    })
-}
-
-fn parse_project_yaml(content: &str, project_path: &PathBuf) -> Result<ProjectConfig, String> {
-    let mut name = String::new();
-    let mut yolo_version = String::from("yolo8");
-    let mut description = Option::<String>::None;
-    let mut classes = Vec::new();
-    let mut train_split = 0.8;
-    let mut val_split = 0.2;
-    let mut image_size = 640;
-
-    // Default dataset paths (used if not found in YAML)
-    let mut images_train = String::from("images/train");
-    let mut images_val = String::from("images/val");
-    let mut labels_train = String::from("labels/train");
-    let mut labels_val = String::from("labels/val");
-
-    // Simple state machine for parsing nested sections
-    let mut in_images = false;
-    let mut in_labels = false;
-
-    for line in content.lines() {
-        let line = line.trim();
-
-        // Track section state
-        if line == "images:" {
-            in_images = true;
-            in_labels = false;
-            continue;
-        } else if line == "labels:" {
-            in_labels = true;
-            in_images = false;
-            continue;
-        } else if line.ends_with(":") && !line.contains(" ") {
-            // Another top-level section starting
-            in_images = false;
-            in_labels = false;
-            continue;
-        }
-
-        // Parse based on current section
-        if in_images {
-            if line.starts_with("train:") {
-                images_train = line.replace("train:", "").trim().to_string();
-            } else if line.starts_with("val:") {
-                images_val = line.replace("val:", "").trim().to_string();
-            }
-            continue;
-        }
-        if in_labels {
-            if line.starts_with("train:") {
-                labels_train = line.replace("train:", "").trim().to_string();
-            } else if line.starts_with("val:") {
-                labels_val = line.replace("val:", "").trim().to_string();
-            }
-            continue;
-        }
-
-        // General fields
-        if line.starts_with("name:") {
-            name = line.replace("name:", "").trim().to_string();
-        } else if line.starts_with("yolo_version:") {
-            yolo_version = line.replace("yolo_version:", "").trim().to_string();
-        } else if line.starts_with("description:") {
-            let desc = line.replace("description:", "").trim().to_string();
-            if !desc.is_empty() {
-                description = Some(desc);
-            }
-        } else if line.starts_with("- ") && !line.contains(":") {
-            // Class entry
-            classes.push(line.replace("-", "").trim().to_string());
-        } else if line.starts_with("train_split:") {
-            if let Ok(val) = line.replace("train_split:", "").trim().parse::<f64>() {
-                train_split = val;
-            }
-        } else if line.starts_with("val_split:") {
-            if let Ok(val) = line.replace("val_split:", "").trim().parse::<f64>() {
-                val_split = val;
-            }
-        } else if line.starts_with("image_size:") {
-            if let Ok(val) = line.replace("image_size:", "").trim().parse::<i32>() {
-                image_size = val;
-            }
-        }
-    }
-
-    if name.is_empty() {
-        return Err("项目配置无效：缺少项目名称".to_string());
-    }
-
-    Ok(ProjectConfig {
-        name,
-        path: project_path.to_string_lossy().to_string(),
-        yolo_version,
-        classes,
-        train_split,
-        val_split,
-        image_size,
-        description,
-        images: DatasetPaths {
-            train: images_train,
-            val: images_val,
-        },
-        labels: DatasetPaths {
-            train: labels_train,
-            val: labels_val,
-        },
     })
 }
 

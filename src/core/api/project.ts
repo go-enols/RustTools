@@ -51,15 +51,3 @@ export async function saveProject(): Promise<ApiResponse<void>> {
     return { success: false, error: String(error) };
   }
 }
-
-/**
- * Import an existing YOLO dataset
- */
-export async function importDataset(datasetPath: string): Promise<ApiResponse<ProjectConfig>> {
-  try {
-    return await invoke<ApiResponse<ProjectConfig>>('import_dataset', { datasetPath });
-  } catch (error) {
-    console.error('[API] importDataset error:', error);
-    return { success: false, error: String(error) };
-  }
-}
