@@ -87,7 +87,22 @@ impl TrainerService {
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to start training: {}", e))?;
+        // Check if yolo command exists first
+        let check_cmd = Command::new("yolo")
+            .args(["version"])
+            .output()
+            .await;
+
+        if let Ok(output) = check_cmd {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("YOLO command check failed: {}", stderr));
+            }
+            let version = String::from_utf8_lossy(&output.stdout);
+            eprintln!("[YOLO] Version: {}", version);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| format!("Failed to start training process: {}. Is yolo CLI installed? Run 'pip install ultralytics' first.", e))?;
 
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
         let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
@@ -117,6 +132,7 @@ impl TrainerService {
             let mut stdout_reader = BufReader::new(stdout).lines();
             let mut stderr_reader = BufReader::new(stderr).lines();
             let mut stop_rx = stop_rx;
+            let mut startup_errors = Vec::new();
 
             loop {
                 tokio::select! {
@@ -126,22 +142,32 @@ impl TrainerService {
                     line = stdout_reader.next_line() => {
                         match line {
                             Ok(Some(line)) => {
+                                eprintln!("[YOLO stdout] {}", line);
                                 if let Some(proc) = processes.write().await.get_mut(&process_id) {
                                     Self::parse_output(&line, &mut proc.status);
                                 }
                             }
-                            Ok(None) => break,
+                            Ok(None) => {
+                                // stdout closed - check for startup errors
+                                if let Some(proc) = processes.write().await.get_mut(&process_id) {
+                                    if proc.status.epoch == 0 && !startup_errors.is_empty() {
+                                        proc.status.running = false;
+                                        let _ = proc.stop_tx.take();
+                                    }
+                                }
+                                break;
+                            }
                             Err(_) => break,
                         }
                     }
                     line = stderr_reader.next_line() => {
                         match line {
                             Ok(Some(line)) => {
-                                if let Some(proc) = processes.write().await.get_mut(&process_id) {
-                                    if proc.status.epoch == 0 {
-                                        // Show errors during setup
-                                        eprintln!("[YOLO] {}", line);
-                                    }
+                                eprintln!("[YOLO stderr] {}", line);
+                                // Collect potential error messages during startup
+                                let lower = line.to_lowercase();
+                                if lower.contains("error") || lower.contains("failed") || lower.contains("warning") {
+                                    startup_errors.push(line.clone());
                                 }
                             }
                             Ok(None) => break,
