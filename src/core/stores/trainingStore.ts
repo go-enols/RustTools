@@ -41,14 +41,27 @@ export interface TrainingMetrics {
 }
 
 export interface TrainingConfig {
+  // Model
   baseModel: string;
+  // Training
   epochs: number;
+  patience: number;
   batchSize: number;
   imageSize: number;
+  // Device & Workers
   deviceId: number;
   workers: number;
-  trainSplit: number;
-  valSplit: number;
+  // Optimizer
+  optimizer: 'SGD' | 'Adam' | 'AdamW';
+  lr0: number;
+  lrf: number;
+  momentum: number;
+  weightDecay: number;
+  // Warmup
+  warmupEpochs: number;
+  warmupBias_lr: number;
+  warmupMomentum: number;
+  // Data Augmentation
   hsvH: number;
   hsvS: number;
   hsvV: number;
@@ -60,6 +73,15 @@ export interface TrainingConfig {
   fliplr: number;
   mosaic: number;
   mixup: number;
+  copy_paste: number;
+  // Advanced
+  close_mosaic: number;
+  rect: boolean;
+  cos_lr: boolean;
+  single_cls: boolean;
+  amp: boolean;
+  save_period: number;
+  cache: boolean;
 }
 
 export interface BaseModel {
@@ -99,8 +121,6 @@ function toApiConfig(config: TrainingConfig): ApiTrainingConfig {
     imageSize: config.imageSize,
     deviceId: config.deviceId,
     workers: config.workers,
-    trainSplit: config.trainSplit,
-    valSplit: config.valSplit,
     hsvH: config.hsvH,
     hsvS: config.hsvS,
     hsvV: config.hsvV,
@@ -112,6 +132,22 @@ function toApiConfig(config: TrainingConfig): ApiTrainingConfig {
     fliplr: config.fliplr,
     mosaic: config.mosaic,
     mixup: config.mixup,
+    optimizer: config.optimizer,
+    lr0: config.lr0,
+    lrf: config.lrf,
+    momentum: config.momentum,
+    weightDecay: config.weightDecay,
+    warmupEpochs: config.warmupEpochs,
+    warmupBias_lr: config.warmupBias_lr,
+    warmupMomentum: config.warmupMomentum,
+    copy_paste: config.copy_paste,
+    close_mosaic: config.close_mosaic,
+    rect: config.rect,
+    cos_lr: config.cos_lr,
+    single_cls: config.single_cls,
+    amp: config.amp,
+    save_period: config.save_period,
+    cache: config.cache,
   };
 }
 

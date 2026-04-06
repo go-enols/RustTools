@@ -38,8 +38,14 @@ export interface TrainingConfig {
   imageSize: number;
   deviceId: number;
   workers: number;
-  trainSplit: number;
-  valSplit: number;
+  optimizer: string;
+  lr0: number;
+  lrf: number;
+  momentum: number;
+  weightDecay: number;
+  warmupEpochs: number;
+  warmupBias_lr: number;
+  warmupMomentum: number;
   hsvH: number;
   hsvS: number;
   hsvV: number;
@@ -51,6 +57,14 @@ export interface TrainingConfig {
   fliplr: number;
   mosaic: number;
   mixup: number;
+  copy_paste: number;
+  close_mosaic: number;
+  rect: boolean;
+  cos_lr: boolean;
+  single_cls: boolean;
+  amp: boolean;
+  save_period: number;
+  cache: boolean;
 }
 
 export interface TrainingProgress {

@@ -12,12 +12,19 @@ import * as echarts from 'echarts';
 const defaultConfig: TrainingConfig = {
   baseModel: 'yolo11s.pt',
   epochs: 50,
+  patience: 50,
   batchSize: 12,
   imageSize: 640,
   deviceId: 0,
   workers: 8,
-  trainSplit: 0.8,
-  valSplit: 0.2,
+  optimizer: 'SGD',
+  lr0: 0.01,
+  lrf: 0.01,
+  momentum: 0.937,
+  weightDecay: 0.0005,
+  warmupEpochs: 3.0,
+  warmupBias_lr: 0.1,
+  warmupMomentum: 0.8,
   hsvH: 0.25,
   hsvS: 0.25,
   hsvV: 0.25,
@@ -29,6 +36,14 @@ const defaultConfig: TrainingConfig = {
   fliplr: 0.5,
   mosaic: 1.0,
   mixup: 0.0,
+  copy_paste: 0.0,
+  close_mosaic: 10,
+  rect: false,
+  cos_lr: false,
+  single_cls: false,
+  amp: true,
+  save_period: -1,
+  cache: false,
 };
 
 // Chart configuration for 10 charts in 2 rows of 5
@@ -473,8 +488,154 @@ export default function TrainingPage() {
                 />
                 <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mosaic.toFixed(1)}</span>
               </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>MixUp</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={config.mixup}
+                  onChange={(e) => setConfig({ ...config, mixup: parseFloat(e.target.value) })}
+                  className="slider"
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mixup.toFixed(1)}</span>
+              </div>
             </div>
           )}
+        </div>
+
+        {/* Optimizer Parameters */}
+        <div className="panel-section">
+          <div className="panel-section-title">
+            <Settings2 size={14} />
+            优化器
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>优化器</label>
+              <select
+                className="select"
+                value={config.optimizer}
+                onChange={(e) => setConfig({ ...config, optimizer: e.target.value as 'SGD' | 'Adam' | 'AdamW' })}
+                style={{ width: '100%', marginTop: 4 }}
+              >
+                <option value="SGD">SGD</option>
+                <option value="Adam">Adam</option>
+                <option value="AdamW">AdamW</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>初始学习率</label>
+              <input
+                type="number"
+                className="input"
+                value={config.lr0}
+                onChange={(e) => setConfig({ ...config, lr0: parseFloat(e.target.value) || 0.01 })}
+                step="0.001"
+                style={{ marginTop: 4 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>最终学习率因子</label>
+              <input
+                type="number"
+                className="input"
+                value={config.lrf}
+                onChange={(e) => setConfig({ ...config, lrf: parseFloat(e.target.value) || 0.01 })}
+                step="0.001"
+                style={{ marginTop: 4 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>动量</label>
+              <input
+                type="number"
+                className="input"
+                value={config.momentum}
+                onChange={(e) => setConfig({ ...config, momentum: parseFloat(e.target.value) || 0.937 })}
+                step="0.001"
+                style={{ marginTop: 4 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>权重衰减</label>
+              <input
+                type="number"
+                className="input"
+                value={config.weightDecay}
+                onChange={(e) => setConfig({ ...config, weightDecay: parseFloat(e.target.value) || 0.0005 })}
+                step="0.0001"
+                style={{ marginTop: 4 }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Advanced Settings */}
+        <div className="panel-section">
+          <div className="panel-section-title">
+            <Settings2 size={14} />
+            高级设置
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+              <input
+                type="checkbox"
+                id="amp"
+                checked={config.amp}
+                onChange={(e) => setConfig({ ...config, amp: e.target.checked })}
+              />
+              <label htmlFor="amp" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>混合精度 (AMP)</label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+              <input
+                type="checkbox"
+                id="cos_lr"
+                checked={config.cos_lr}
+                onChange={(e) => setConfig({ ...config, cos_lr: e.target.checked })}
+              />
+              <label htmlFor="cos_lr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>余弦学习率</label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+              <input
+                type="checkbox"
+                id="rect"
+                checked={config.rect}
+                onChange={(e) => setConfig({ ...config, rect: e.target.checked })}
+              />
+              <label htmlFor="rect" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>矩形训练</label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+              <input
+                type="checkbox"
+                id="cache"
+                checked={config.cache}
+                onChange={(e) => setConfig({ ...config, cache: e.target.checked })}
+              />
+              <label htmlFor="cache" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缓存图像</label>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>早停耐心</label>
+              <input
+                type="number"
+                className="input"
+                value={config.patience}
+                onChange={(e) => setConfig({ ...config, patience: parseInt(e.target.value) || 50 })}
+                style={{ marginTop: 4 }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic关闭轮次</label>
+              <input
+                type="number"
+                className="input"
+                value={config.close_mosaic}
+                onChange={(e) => setConfig({ ...config, close_mosaic: parseInt(e.target.value) || 10 })}
+                style={{ marginTop: 4 }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
