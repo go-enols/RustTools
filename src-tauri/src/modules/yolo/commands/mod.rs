@@ -113,6 +113,32 @@ labels:
         });
     }
 
+    // Create data.yaml for YOLO training (ultralytics format)
+    let data_yaml_path = project_path.join("data.yaml");
+    let data_yaml_content = format!(
+        r#"# YOLO Dataset Configuration
+# This file is used by ultralytics YOLO for training
+
+path: {}
+train: images/train
+val: images/val
+
+# Classes
+names:
+{}
+"#,
+        project_path.to_string_lossy(),
+        config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
+    );
+
+    if let Err(e) = fs::write(&data_yaml_path, data_yaml_content) {
+        return Ok(ProjectResponse {
+            success: false,
+            data: None,
+            error: Some(format!("保存data.yaml失败: {}", e)),
+        });
+    }
+
     Ok(ProjectResponse {
         success: true,
         data: Some(ProjectConfig {
@@ -230,6 +256,26 @@ labels:
 
         fs::write(&project_yaml_path, yaml_out_content)
             .map_err(|e| format!("保存project.yaml失败: {}", e))?;
+
+        // Also create data.yaml for YOLO training
+        let data_yaml_content = format!(
+            r#"# YOLO Dataset Configuration
+# This file is used by ultralytics YOLO for training
+
+path: {}
+train: images/train
+val: images/val
+
+# Classes
+names:
+{}
+"#,
+            project_path,
+            project_config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
+        );
+
+        fs::write(&data_yaml_path, data_yaml_content)
+            .map_err(|e| format!("保存data.yaml失败: {}", e))?;
     }
 
     Ok(ProjectResponse {
@@ -476,6 +522,26 @@ labels:
 
     fs::write(&project_yaml_path, yaml_out_content)
         .map_err(|e| format!("保存project.yaml失败: {}", e))?;
+
+    // Create data.yaml for YOLO training (ultralytics format)
+    let data_yaml_content = format!(
+        r#"# YOLO Dataset Configuration
+# This file is used by ultralytics YOLO for training
+
+path: {}
+train: images/train
+val: images/val
+
+# Classes
+names:
+{}
+"#,
+        dataset_path,
+        project_config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
+    );
+
+    fs::write(&data_yaml_path, data_yaml_content)
+        .map_err(|e| format!("保存data.yaml失败: {}", e))?;
 
     Ok(ProjectResponse {
         success: true,

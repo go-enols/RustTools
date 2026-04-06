@@ -39,10 +39,16 @@ impl TrainerService {
         let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
 
         // Build YOLO command
+        // YOLO expects data parameter to point to data.yaml file
+        let data_yaml = std::path::Path::new(&project_path)
+            .join("data.yaml")
+            .to_string_lossy()
+            .to_string();
+
         let mut cmd = Command::new("yolo");
         cmd.args([
             "detect", "train",
-            &format!("data={}", project_path),
+            &format!("data={}", data_yaml),
             &format!("model={}", request.base_model),
             &format!("epochs={}", request.epochs),
             &format!("batch={}", request.batch_size),
