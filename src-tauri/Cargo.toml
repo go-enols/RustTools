@@ -24,4 +24,6 @@ tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 base64 = "0.22"
 notify = "8"
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["sync", "time", "process", "io-util", "macros", "rt-multi-thread"] }
+rand = "0.8"
+hex = "0.4"

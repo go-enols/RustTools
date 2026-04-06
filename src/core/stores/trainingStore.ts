@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { listen } from '@tauri-apps/api/event';
 import {
   startTraining as apiStartTraining,
   stopTraining as apiStopTraining,
@@ -8,9 +9,9 @@ import {
   deleteModel as apiDeleteModel,
   getBaseModels as apiGetBaseModels,
   TrainingConfig as ApiTrainingConfig,
-  TrainingProgress,
   TrainedModel as ApiTrainedModel,
 } from '../api';
+import { useWorkspaceStore } from './workspaceStore';
 
 export interface TrainedModel {
   id: string;
@@ -148,29 +149,72 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
       return;
     }
 
+    const { currentProject } = useWorkspaceStore.getState();
+    if (!currentProject) {
+      console.error('No project open');
+      return;
+    }
+
     try {
-      // Convert progress callback to update metrics
-      const onProgress = (progress: TrainingProgress) => {
+      // Listen for training progress events
+      const unlistenProgress = await listen<{
+        training_id: string;
+        epoch: number;
+        total_epochs: number;
+        progress_percent: number;
+        metrics: {
+          train_box_loss: number;
+          train_cls_loss: number;
+          train_dfl_loss: number;
+          val_box_loss: number;
+          val_cls_loss: number;
+          val_dfl_loss: number;
+          precision: number;
+          recall: number;
+          map50: number;
+          map50_95: number;
+          learning_rate: number;
+        };
+      }>('training-progress', (event) => {
+        const { metrics: m } = event.payload;
         const metrics: TrainingMetrics = {
-          epoch: progress.epoch,
-          trainBoxLoss: progress.train_box_loss,
-          trainClsLoss: progress.train_cls_loss,
-          trainDflLoss: progress.train_dfl_loss,
-          valBoxLoss: progress.val_box_loss,
-          valClsLoss: progress.val_cls_loss,
-          valDflLoss: progress.val_dfl_loss,
-          precision: progress.precision,
-          recall: progress.recall,
-          map50: progress.map50,
-          map50_95: progress.map50_95,
+          epoch: event.payload.epoch,
+          trainBoxLoss: m.train_box_loss,
+          trainClsLoss: m.train_cls_loss,
+          trainDflLoss: m.train_dfl_loss,
+          valBoxLoss: m.val_box_loss,
+          valClsLoss: m.val_cls_loss,
+          valDflLoss: m.val_dfl_loss,
+          precision: m.precision,
+          recall: m.recall,
+          map50: m.map50,
+          map50_95: m.map50_95,
         };
         get().updateMetrics(metrics);
-      };
+      });
 
-      const response = await apiStartTraining('', toApiConfig(config), onProgress);
+      // Listen for training complete
+      const unlistenComplete = await listen<{
+        training_id: string;
+        success: boolean;
+        model_path?: string;
+        error?: string;
+      }>('training-complete', () => {
+        unlistenProgress();
+        unlistenComplete();
+        set({
+          isTraining: false,
+          isPaused: false,
+          currentTrainingId: null,
+        });
+      });
+
+      const response = await apiStartTraining(currentProject.path, toApiConfig(config));
 
       if (!response.success || !response.data) {
         throw new Error(response.error || '启动训练失败');
+        unlistenProgress();
+        unlistenComplete();
       }
 
       set({

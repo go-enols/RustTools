@@ -2,6 +2,8 @@ pub mod core;
 pub mod modules;
 
 use core::commands::watcher::WatcherState;
+use modules::yolo::services::TrainerService;
+use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -10,12 +12,18 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .manage(WatcherState::default())
+        .manage(Arc::new(TrainerService::new()))
         .invoke_handler(tauri::generate_handler![
             modules::yolo::commands::project_create,
             modules::yolo::commands::project_open,
             modules::yolo::commands::update_classes,
             modules::yolo::commands::load_annotation,
             modules::yolo::commands::save_annotation,
+            // Training commands
+            modules::yolo::commands::train::training_start,
+            modules::yolo::commands::train::training_stop,
+            modules::yolo::commands::train::training_pause,
+            modules::yolo::commands::train::training_resume,
             // File operations
             core::commands::read_text_file,
             core::commands::read_binary_file,
