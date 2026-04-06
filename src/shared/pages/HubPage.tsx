@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useRouterStore, moduleRegistry } from '../../modules';
-import { useWorkspaceStore } from '../../core/stores/workspaceStore';
+import { useWorkspaceStore, Project } from '../../core/stores/workspaceStore';
 import { useToast } from '../../shared/hooks/useToast';
 import YoloGuideModal from '../../modules/yolo/components/YoloGuideModal';
 import NewProjectModal from '../../modules/yolo/components/NewProjectModal';
@@ -9,18 +9,15 @@ import { Lock, Sparkles, ArrowRight } from 'lucide-react';
 export default function HubPage() {
   const modules = moduleRegistry.getAllModules();
   const { navigateToModule } = useRouterStore();
-  const { currentProject, selectProjectPath, openProjectFromPath } = useWorkspaceStore();
+  const { recentProjects, openProject, selectProjectPath, openProjectFromPath } = useWorkspaceStore();
   const { error: showError } = useToast();
   const [showYoloGuide, setShowYoloGuide] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
 
   const handleModuleClick = (moduleId: string) => {
     if (moduleId === 'yolo') {
-      if (currentProject) {
-        navigateToModule(moduleId);
-      } else {
-        setShowYoloGuide(true);
-      }
+      // Always show the guide modal for project selection
+      setShowYoloGuide(true);
     } else {
       showError(`模块 ${moduleId} 暂未开放`);
     }
@@ -31,6 +28,7 @@ export default function HubPage() {
     if (path) {
       const success = await openProjectFromPath(path);
       if (success) {
+        setShowYoloGuide(false);
         navigateToModule('yolo');
       } else {
         showError('打开项目失败，请确保选择的是有效的 YOLO 项目文件夹');
@@ -38,11 +36,19 @@ export default function HubPage() {
     }
   };
 
+  const handleSelectRecentProject = (project: Project) => {
+    openProject(project);
+    setShowYoloGuide(false);
+    navigateToModule('yolo');
+  };
+
   const handleNewProject = () => {
     setShowNewProject(true);
   };
 
   const handleProjectCreated = () => {
+    setShowNewProject(false);
+    setShowYoloGuide(false);
     navigateToModule('yolo');
   };
 
@@ -98,6 +104,8 @@ export default function HubPage() {
           onClose={() => setShowYoloGuide(false)}
           onOpenProject={handleOpenProject}
           onNewProject={handleNewProject}
+          recentProjects={recentProjects}
+          onSelectRecentProject={handleSelectRecentProject}
         />
       )}
 

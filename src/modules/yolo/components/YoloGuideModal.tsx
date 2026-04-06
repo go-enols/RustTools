@@ -1,15 +1,20 @@
-import { Sparkles, FolderOpen, Plus, ArrowRight, X } from 'lucide-react';
+import { Sparkles, FolderOpen, Plus, ArrowRight, X, Clock } from 'lucide-react';
+import type { Project } from '../../../core/stores/workspaceStore';
 
 interface YoloGuideModalProps {
   onClose: () => void;
   onOpenProject: () => void;
   onNewProject: () => void;
+  recentProjects?: Project[];
+  onSelectRecentProject?: (project: Project) => void;
 }
 
 export default function YoloGuideModal({
   onClose,
   onOpenProject,
   onNewProject,
+  recentProjects = [],
+  onSelectRecentProject,
 }: YoloGuideModalProps) {
   return (
     <div className="guide-modal-overlay" onClick={onClose}>
@@ -49,6 +54,27 @@ export default function YoloGuideModal({
             <ArrowRight size={18} className="guide-action-arrow" />
           </button>
         </div>
+
+        {recentProjects.length > 0 && (
+          <div className="guide-modal-recent">
+            <div className="guide-recent-header">
+              <Clock size={14} />
+              <span>最近项目</span>
+            </div>
+            <div className="guide-recent-list">
+              {recentProjects.slice(0, 5).map((project) => (
+                <button
+                  key={project.id}
+                  className="guide-recent-item"
+                  onClick={() => onSelectRecentProject?.(project)}
+                >
+                  <div className="guide-recent-name">{project.name}</div>
+                  <div className="guide-recent-path">{project.path}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
