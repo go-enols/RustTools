@@ -42,29 +42,29 @@ export interface TrainingMetrics {
 
 export interface TrainingConfig {
   // Model
-  baseModel: string;
+  base_model: string;
   // Training
   epochs: number;
   patience: number;
-  batchSize: number;
-  imageSize: number;
+  batch_size: number;
+  image_size: number;
   // Device & Workers
-  deviceId: number;
+  device_id: number;
   workers: number;
   // Optimizer
   optimizer: 'SGD' | 'Adam' | 'AdamW';
   lr0: number;
   lrf: number;
   momentum: number;
-  weightDecay: number;
+  weight_decay: number;
   // Warmup
-  warmupEpochs: number;
-  warmupBias_lr: number;
-  warmupMomentum: number;
+  warmup_epochs: number;
+  warmup_bias_lr: number;
+  warmup_momentum: number;
   // Data Augmentation
-  hsvH: number;
-  hsvS: number;
-  hsvV: number;
+  hsv_h: number;
+  hsv_s: number;
+  hsv_v: number;
   translate: number;
   scale: number;
   shear: number;
@@ -115,15 +115,15 @@ interface TrainingState {
 // Convert frontend config to API config
 function toApiConfig(config: TrainingConfig): ApiTrainingConfig {
   return {
-    baseModel: config.baseModel,
+    base_model: config.base_model,
     epochs: config.epochs,
-    batchSize: config.batchSize,
-    imageSize: config.imageSize,
-    deviceId: config.deviceId,
+    batch_size: config.batch_size,
+    image_size: config.image_size,
+    device_id: config.device_id,
     workers: config.workers,
-    hsvH: config.hsvH,
-    hsvS: config.hsvS,
-    hsvV: config.hsvV,
+    hsv_h: config.hsv_h,
+    hsv_s: config.hsv_s,
+    hsv_v: config.hsv_v,
     translate: config.translate,
     scale: config.scale,
     shear: config.shear,
@@ -136,10 +136,10 @@ function toApiConfig(config: TrainingConfig): ApiTrainingConfig {
     lr0: config.lr0,
     lrf: config.lrf,
     momentum: config.momentum,
-    weightDecay: config.weightDecay,
-    warmupEpochs: config.warmupEpochs,
-    warmupBias_lr: config.warmupBias_lr,
-    warmupMomentum: config.warmupMomentum,
+    weight_decay: config.weight_decay,
+    warmup_epochs: config.warmup_epochs,
+    warmup_bias_lr: config.warmup_bias_lr,
+    warmup_momentum: config.warmup_momentum,
     copy_paste: config.copy_paste,
     close_mosaic: config.close_mosaic,
     rect: config.rect,

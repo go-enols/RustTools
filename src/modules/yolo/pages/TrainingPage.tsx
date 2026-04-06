@@ -10,24 +10,24 @@ import { useTrainingStore, TrainingConfig, TrainingMetrics } from '../../../core
 import * as echarts from 'echarts';
 
 const defaultConfig: TrainingConfig = {
-  baseModel: 'yolo11s.pt',
+  base_model: 'yolo11s.pt',
   epochs: 50,
   patience: 50,
-  batchSize: 12,
-  imageSize: 640,
-  deviceId: 0,
+  batch_size: 12,
+  image_size: 640,
+  device_id: 0,
   workers: 8,
   optimizer: 'SGD',
   lr0: 0.01,
   lrf: 0.01,
   momentum: 0.937,
-  weightDecay: 0.0005,
-  warmupEpochs: 3.0,
-  warmupBias_lr: 0.1,
-  warmupMomentum: 0.8,
-  hsvH: 0.25,
-  hsvS: 0.25,
-  hsvV: 0.25,
+  weight_decay: 0.0005,
+  warmup_epochs: 3.0,
+  warmup_bias_lr: 0.1,
+  warmup_momentum: 0.8,
+  hsv_h: 0.25,
+  hsv_s: 0.25,
+  hsv_v: 0.25,
   translate: 0.1,
   scale: 0.5,
   shear: 0.0,
@@ -244,8 +244,8 @@ export default function TrainingPage() {
               <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>基础模型</span>
               <select
                 className="select"
-                value={config.baseModel}
-                onChange={(e) => setConfig({ ...config, baseModel: e.target.value })}
+                value={config.base_model}
+                onChange={(e) => setConfig({ ...config, base_model: e.target.value })}
                 style={{ marginLeft: 8 }}
               >
                 <option value="yolo11n.pt">YOLO11n</option>
@@ -270,8 +270,8 @@ export default function TrainingPage() {
               <input
                 type="number"
                 className="input"
-                value={config.batchSize}
-                onChange={(e) => setConfig({ ...config, batchSize: parseInt(e.target.value) || 12 })}
+                value={config.batch_size}
+                onChange={(e) => setConfig({ ...config, batch_size: parseInt(e.target.value) || 12 })}
                 style={{ width: 60, marginLeft: 8, textAlign: 'center' }}
               />
             </div>
@@ -355,8 +355,8 @@ export default function TrainingPage() {
               <input
                 type="number"
                 className="input"
-                value={config.imageSize}
-                onChange={(e) => setConfig({ ...config, imageSize: parseInt(e.target.value) || 640 })}
+                value={config.image_size}
+                onChange={(e) => setConfig({ ...config, image_size: parseInt(e.target.value) || 640 })}
                 style={{ marginTop: 4 }}
               />
             </div>
@@ -364,8 +364,8 @@ export default function TrainingPage() {
               <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>设备ID</label>
               <select
                 className="select"
-                value={config.deviceId}
-                onChange={(e) => setConfig({ ...config, deviceId: parseInt(e.target.value) })}
+                value={config.device_id}
+                onChange={(e) => setConfig({ ...config, device_id: parseInt(e.target.value) })}
                 style={{ width: '100%', marginTop: 4 }}
               >
                 <option value={0}>GPU 0</option>
@@ -404,11 +404,11 @@ export default function TrainingPage() {
                   min="0"
                   max="1"
                   step="0.05"
-                  value={config.hsvH}
-                  onChange={(e) => setConfig({ ...config, hsvH: parseFloat(e.target.value) })}
+                  value={config.hsv_h}
+                  onChange={(e) => setConfig({ ...config, hsv_h: parseFloat(e.target.value) })}
                   className="slider"
                 />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsvH.toFixed(2)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_h.toFixed(2)}</span>
               </div>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV饱和度</label>
@@ -417,11 +417,11 @@ export default function TrainingPage() {
                   min="0"
                   max="1"
                   step="0.05"
-                  value={config.hsvS}
-                  onChange={(e) => setConfig({ ...config, hsvS: parseFloat(e.target.value) })}
+                  value={config.hsv_s}
+                  onChange={(e) => setConfig({ ...config, hsv_s: parseFloat(e.target.value) })}
                   className="slider"
                 />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsvS.toFixed(2)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_s.toFixed(2)}</span>
               </div>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV亮度</label>
@@ -430,11 +430,11 @@ export default function TrainingPage() {
                   min="0"
                   max="1"
                   step="0.05"
-                  value={config.hsvV}
-                  onChange={(e) => setConfig({ ...config, hsvV: parseFloat(e.target.value) })}
+                  value={config.hsv_v}
+                  onChange={(e) => setConfig({ ...config, hsv_v: parseFloat(e.target.value) })}
                   className="slider"
                 />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsvV.toFixed(2)}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_v.toFixed(2)}</span>
               </div>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>平移</label>
@@ -563,8 +563,8 @@ export default function TrainingPage() {
               <input
                 type="number"
                 className="input"
-                value={config.weightDecay}
-                onChange={(e) => setConfig({ ...config, weightDecay: parseFloat(e.target.value) || 0.0005 })}
+                value={config.weight_decay}
+                onChange={(e) => setConfig({ ...config, weight_decay: parseFloat(e.target.value) || 0.0005 })}
                 step="0.0001"
                 style={{ marginTop: 4 }}
               />

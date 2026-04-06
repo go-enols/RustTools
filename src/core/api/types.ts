@@ -32,23 +32,23 @@ export interface ProjectConfig {
 
 // Training Types
 export interface TrainingConfig {
-  baseModel: string;
+  base_model: string;
   epochs: number;
-  batchSize: number;
-  imageSize: number;
-  deviceId: number;
+  batch_size: number;
+  image_size: number;
+  device_id: number;
   workers: number;
   optimizer: string;
   lr0: number;
   lrf: number;
   momentum: number;
-  weightDecay: number;
-  warmupEpochs: number;
-  warmupBias_lr: number;
-  warmupMomentum: number;
-  hsvH: number;
-  hsvS: number;
-  hsvV: number;
+  weight_decay: number;
+  warmup_epochs: number;
+  warmup_bias_lr: number;
+  warmup_momentum: number;
+  hsv_h: number;
+  hsv_s: number;
+  hsv_v: number;
   translate: number;
   scale: number;
   shear: number;
