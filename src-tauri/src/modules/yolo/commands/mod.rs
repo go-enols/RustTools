@@ -114,13 +114,13 @@ labels:
     }
 
     // Create data.yaml for YOLO training (ultralytics format)
-    // Use "." as path so it's relative to the project directory
+    // Use absolute path so YOLO resolves paths correctly regardless of CWD
     let data_yaml_path = project_path.join("data.yaml");
     let data_yaml_content = format!(
         r#"# YOLO Dataset Configuration
 # This file is used by ultralytics YOLO for training
 
-path: .
+path: {}
 train: images/train
 val: images/val
 
@@ -128,6 +128,7 @@ val: images/val
 names:
 {}
 "#,
+        project_path.to_string_lossy().replace("\\", "/"),
         config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
     );
 
@@ -256,13 +257,15 @@ labels:
 
         fs::write(&project_yaml_path, yaml_out_content)
             .map_err(|e| format!("保存project.yaml失败: {}", e))?;
+    }
 
-        // Also create data.yaml for YOLO training
-        let data_yaml_content = format!(
-            r#"# YOLO Dataset Configuration
+    // Always regenerate data.yaml for YOLO training with correct path settings
+    // Use absolute path so YOLO resolves paths correctly regardless of CWD
+    let data_yaml_content = format!(
+        r#"# YOLO Dataset Configuration
 # This file is used by ultralytics YOLO for training
 
-path: .
+path: {}
 train: images/train
 val: images/val
 
@@ -270,12 +273,12 @@ val: images/val
 names:
 {}
 "#,
-            project_config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
-        );
+        path.to_string_lossy().replace("\\", "/"),
+        project_config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
+    );
 
-        fs::write(&data_yaml_path, data_yaml_content)
-            .map_err(|e| format!("保存data.yaml失败: {}", e))?;
-    }
+    fs::write(&data_yaml_path, data_yaml_content)
+        .map_err(|e| format!("保存data.yaml失败: {}", e))?;
 
     Ok(ProjectResponse {
         success: true,
@@ -431,6 +434,7 @@ pub async fn save_annotation(
     })
 }
 
+pub mod env;
 pub mod train;
 
 /// Import an existing YOLO dataset and create a project
@@ -523,11 +527,12 @@ labels:
         .map_err(|e| format!("保存project.yaml失败: {}", e))?;
 
     // Create data.yaml for YOLO training (ultralytics format)
+    // Use absolute path so YOLO resolves paths correctly regardless of CWD
     let data_yaml_content = format!(
         r#"# YOLO Dataset Configuration
 # This file is used by ultralytics YOLO for training
 
-path: .
+path: {}
 train: images/train
 val: images/val
 
@@ -535,6 +540,7 @@ val: images/val
 names:
 {}
 "#,
+        path.to_string_lossy().replace("\\", "/"),
         project_config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
     );
 
@@ -564,7 +570,6 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
     let mut train_split = 0.8;
     let mut val_split = 0.2;
     let mut image_size = 640;
-    let mut path_prefix = String::new();
 
     // For ultralytics data.yaml format
     let mut in_names = false;
@@ -597,9 +602,7 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
         }
 
         // General fields
-        if line.starts_with("path:") {
-            path_prefix = line.replace("path:", "").trim().to_string();
-        } else if line.starts_with("name:") {
+        if line.starts_with("name:") {
             name = line.replace("name:", "").trim().to_string();
         } else if line.starts_with("yolo_version:") {
             yolo_version = line.replace("yolo_version:", "").trim().to_string();

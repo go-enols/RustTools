@@ -60,6 +60,15 @@ export {
   resumeTraining,
   getTrainingLogs,
   exportTrainingResults,
+  checkModel,
+  downloadModel,
+  checkPythonEnv,
+  installPythonDeps,
+  getInstallInstructions,
+  type ModelCheckResult,
+  type ModelDownloadResult,
+  type PythonEnvInfo,
+  type InstallInstructions,
 } from './training';
 
 // Model

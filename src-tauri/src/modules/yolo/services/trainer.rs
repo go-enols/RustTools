@@ -3,9 +3,10 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, RwLock};
+use tokio_stream::StreamExt;
 
 pub struct TrainerService {
     processes: Arc<RwLock<HashMap<String, TrainingHandle>>>,
@@ -14,7 +15,9 @@ pub struct TrainerService {
 struct TrainingHandle {
     status: TrainingStatus,
     stop_tx: Option<mpsc::Sender<()>>,
-    child_id: u32,
+    child: Child,
+    stdin: Option<tokio::io::BufWriter<tokio::process::ChildStdin>>,
+    model_path: Option<String>,
 }
 
 impl TrainerService {
@@ -30,83 +33,96 @@ impl TrainerService {
         hex::encode(bytes)
     }
 
+    /// Find and start the Python sidecar process
+    async fn start_sidecar(&self) -> Result<Child, String> {
+        let script_paths = [
+            "scripts/yolo_server.py",
+            "src-tauri/scripts/yolo_server.py",
+        ];
+
+        let script_path = script_paths
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .ok_or_else(|| "Python sidecar script not found".to_string())?;
+
+        let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+
+        let child = Command::new(python_cmd)
+            .arg(script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())  // Print Python stderr to console
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("Failed to start Python sidecar: {}", e))?;
+
+        Ok(child)
+    }
+
     pub async fn start_training(
         &self,
         project_path: String,
         request: TrainingRequest,
     ) -> Result<String, String> {
         let training_id = Self::generate_id();
+        self.start_training_pipe(training_id, project_path, request)
+            .await
+    }
+
+    /// Start training via stdin/stdout pipe
+    /// Python actively reports progress via callbacks
+    async fn start_training_pipe(
+        &self,
+        training_id: String,
+        project_path: String,
+        request: TrainingRequest,
+    ) -> Result<String, String> {
+        eprintln!("[Trainer] Starting training via pipe...");
+
+        let mut child = self.start_sidecar().await?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Failed to take stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to take stdout".to_string())?;
+
+        // Build config
+        let config = serde_json::json!({
+            "project_path": project_path,
+            "base_model": request.base_model,
+            "epochs": request.epochs,
+            "batch_size": request.batch_size,
+            "image_size": request.image_size,
+            "device": request.device_id,
+            "workers": request.workers,
+            "optimizer": request.optimizer,
+        });
+
+        // Send start command - keep stdin alive by wrapping in BufWriter but not dropping
+        let start_cmd = serde_json::json!({
+            "type": "start",
+            "config": config,
+        });
+
+        let mut stdin_writer = tokio::io::BufWriter::new(stdin);
+        stdin_writer
+            .write_all(
+                (serde_json::to_string(&start_cmd).unwrap() + "\n").as_bytes(),
+            )
+            .await
+            .map_err(|e| format!("Failed to write start command: {}", e))?;
+        stdin_writer
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+
+        // Keep stdin writer alive - don't drop it here! Python needs stdin to stay open.
+
         let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
-
-        // Build YOLO command
-        // YOLO expects data parameter to point to data.yaml file
-        // We need to run from the project directory so relative paths work
-        let data_yaml = "data.yaml".to_string();
-
-        let mut cmd = Command::new("yolo");
-        cmd.current_dir(&project_path)  // Run from project directory
-            .args([
-            "detect", "train",
-            &format!("data={}", data_yaml),
-            &format!("model={}", request.base_model),
-            &format!("epochs={}", request.epochs),
-            &format!("batch={}", request.batch_size),
-            &format!("imgsz={}", request.image_size),
-            &format!("device={}", request.device_id),
-            &format!("workers={}", request.workers),
-            &format!("optimizer={}", request.optimizer),
-            &format!("lr0={}", request.lr0),
-            &format!("lrf={}", request.lrf),
-            &format!("momentum={}", request.momentum),
-            &format!("weight_decay={}", request.weight_decay),
-            &format!("warmup_epochs={}", request.warmup_epochs),
-            &format!("warmup_bias_lr={}", request.warmup_bias_lr),
-            &format!("warmup_momentum={}", request.warmup_momentum),
-            &format!("hsv_h={}", request.hsv_h),
-            &format!("hsv_s={}", request.hsv_s),
-            &format!("hsv_v={}", request.hsv_v),
-            &format!("translate={}", request.translate),
-            &format!("scale={}", request.scale),
-            &format!("shear={}", request.shear),
-            &format!("perspective={}", request.perspective),
-            &format!("flipud={}", request.flipud),
-            &format!("fliplr={}", request.fliplr),
-            &format!("mosaic={}", request.mosaic),
-            &format!("mixup={}", request.mixup),
-            &format!("copy_paste={}", request.copy_paste),
-            &format!("close_mosaic={}", request.close_mosaic),
-            &format!("rect={}", request.rect),
-            &format!("cos_lr={}", request.cos_lr),
-            &format!("single_cls={}", request.single_cls),
-            &format!("amp={}", request.amp),
-            &format!("save_period={}", request.save_period),
-            &format!("cache={}", request.cache),
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-        // Check if yolo command exists first
-        let check_cmd = Command::new("yolo")
-            .args(["version"])
-            .output()
-            .await;
-
-        if let Ok(output) = check_cmd {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("YOLO command check failed: {}", stderr));
-            }
-            let version = String::from_utf8_lossy(&output.stdout);
-            eprintln!("[YOLO] Version: {}", version);
-        }
-
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to start training process: {}. Is yolo CLI installed? Run 'pip install ultralytics' first.", e))?;
-
-        let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-        let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-
-        let child_id = child.id().ok_or("Failed to get child id")?;
 
         let handle = TrainingHandle {
             status: TrainingStatus {
@@ -116,72 +132,169 @@ impl TrainerService {
                 total_epochs: request.epochs,
                 progress_percent: 0.0,
                 metrics: TrainingMetrics::default(),
+                error: None,
             },
             stop_tx: Some(stop_tx),
-            child_id,
+            child,
+            stdin: Some(stdin_writer),  // Keep stdin alive
+            model_path: None,
         };
 
-        self.processes.write().await.insert(training_id.clone(), handle);
+        self.processes
+            .write()
+            .await
+            .insert(training_id.clone(), handle);
 
-        // Spawn log reader task
+        // Spawn event reader - Python actively sends events
         let process_id = training_id.clone();
         let processes = Arc::clone(&self.processes);
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stop_rx = stop_rx;
 
         tokio::spawn(async move {
-            let mut stdout_reader = BufReader::new(stdout).lines();
-            let mut stderr_reader = BufReader::new(stderr).lines();
-            let mut stop_rx = stop_rx;
-            let mut startup_errors = Vec::new();
-
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => {
+                        // Send stop command to Python
+                        eprintln!("[Trainer] Sending stop command to Python...");
+                        // Note: Can't easily write to stdin here, so just kill
+                        if let Some(h) = processes.write().await.get_mut(&process_id) {
+                            let _ = h.child.kill().await;
+                            h.status.running = false;
+                        }
                         break;
                     }
                     line = stdout_reader.next_line() => {
                         match line {
                             Ok(Some(line)) => {
-                                eprintln!("[YOLO stdout] {}", line);
-                                if let Some(proc) = processes.write().await.get_mut(&process_id) {
-                                    Self::parse_output(&line, &mut proc.status);
+                                // Parse JSON event from Python
+                                if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    let event_type = resp
+                                        .get("type")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+
+                                    eprintln!("[Trainer] Received event: {} - {}", event_type, line);
+
+                                    match event_type {
+                                        "progress" => {
+                                            eprintln!("[Trainer] Processing progress event from Python");
+                                            if let Some(data) = resp.get("data") {
+                                                let epoch = data
+                                                    .get("epoch")
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(0) as u32;
+                                                let total = data
+                                                    .get("total_epochs")
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(0) as u32;
+
+                                                if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                    h.status.epoch = epoch;
+                                                    h.status.total_epochs = total;
+                                                    if total > 0 {
+                                                        h.status.progress_percent =
+                                                            (epoch as f32 / total as f32) * 100.0;
+                                                    }
+
+                                                    // Extract metrics
+                                                    let mut metrics = TrainingMetrics::default();
+                                                    metrics.train_box_loss =
+                                                        data.get("box_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.train_cls_loss =
+                                                        data.get("cls_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.train_dfl_loss =
+                                                        data.get("dfl_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.precision =
+                                                        data.get("precision").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.recall =
+                                                        data.get("recall").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.map50 =
+                                                        data.get("mAP50").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.map50_95 =
+                                                        data.get("mAP50-95").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+                                                    eprintln!("[Trainer] Progress updated: epoch={}, metrics box_loss={}", epoch, metrics.train_box_loss);
+                                                    h.status.metrics = metrics;
+                                                }
+                                            }
+                                        }
+                                        "started" => {
+                                            eprintln!("[Trainer] Training started event received");
+                                        }
+                                        "complete" => {
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                                if let Some(data) = resp.get("data") {
+                                                    if let Some(_final_metrics) = data.get("final_metrics") {
+                                                        h.status.progress_percent = 100.0;
+                                                    }
+                                                }
+                                            }
+                                            eprintln!("[Trainer] Training complete event received");
+                                            break;
+                                        }
+                                        "error" => {
+                                            let error_msg = resp
+                                                .get("error")
+                                                .and_then(|v| v.as_str())
+                                                .map(String::from)
+                                                .unwrap_or_else(|| "Unknown error".to_string());
+                                            eprintln!("[Trainer] Received error event: {}", error_msg);
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                                h.status.error = Some(error_msg.clone());
+                                            }
+                                            eprintln!("[Trainer] Training error event processed: {}", error_msg);
+                                            break;
+                                        }
+                                        "stopped" => {
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                            }
+                                            eprintln!("[Trainer] Training stopped event received");
+                                            break;
+                                        }
+                                        "log" => {
+                                            if let Some(data) = resp.get("data") {
+                                                if let Some(msg) = data.get("message").and_then(|v| v.as_str()) {
+                                                    eprintln!("[YOLO] {}", msg);
+                                                }
+                                            }
+                                        }
+                                        "model_saved" => {
+                                            if let Some(data) = resp.get("data") {
+                                                if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                                                    eprintln!("[Trainer] Model saved: {}", path);
+                                                    if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                        h.model_path = Some(path.to_string());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {
+                                            eprintln!("[Trainer] Unknown event type: {}", event_type);
+                                        }
+                                    }
                                 }
                             }
-                            Ok(None) => {
-                                // stdout closed - check for startup errors
-                                if let Some(proc) = processes.write().await.get_mut(&process_id) {
-                                    if proc.status.epoch == 0 && !startup_errors.is_empty() {
-                                        proc.status.running = false;
-                                        let _ = proc.stop_tx.take();
-                                    }
+                            Ok(None) | Err(_) => {
+                                // Stream ended
+                                eprintln!("[Trainer] Output stream ended");
+                                if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                    h.status.running = false;
                                 }
                                 break;
                             }
-                            Err(_) => break,
-                        }
-                    }
-                    line = stderr_reader.next_line() => {
-                        match line {
-                            Ok(Some(line)) => {
-                                eprintln!("[YOLO stderr] {}", line);
-                                // Collect potential error messages during startup
-                                let lower = line.to_lowercase();
-                                if lower.contains("error") || lower.contains("failed") || lower.contains("warning") {
-                                    startup_errors.push(line.clone());
-                                }
-                            }
-                            Ok(None) => break,
-                            Err(_) => break,
                         }
                     }
                 }
             }
 
-            // Training ended
-            if let Some(proc) = processes.write().await.get_mut(&process_id) {
-                proc.status.running = false;
-                if let Some(tx) = proc.stop_tx.take() {
-                    let _ = tx.send(()).await;
-                }
+            // Clean up
+            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                h.status.running = false;
+                let _ = h.child.wait().await;
             }
         });
 
@@ -190,7 +303,7 @@ impl TrainerService {
 
     pub async fn stop_training(&self, training_id: &str) -> Result<(), String> {
         let mut processes = self.processes.write().await;
-        if let Some(mut handle) = processes.get_mut(training_id) {
+        if let Some(handle) = processes.get_mut(training_id) {
             if let Some(tx) = handle.stop_tx.take() {
                 let _ = tx.send(()).await;
             }
@@ -237,73 +350,183 @@ impl TrainerService {
             .unwrap_or(false)
     }
 
-    fn parse_output(line: &str, status: &mut TrainingStatus) {
-        // Parse YOLO output lines
-        // Format: "Epoch 1/50: 100%|██████████| 100/100 [00:05<00:00]"
-        if line.contains("Epoch") {
-            if let Some((epoch, total)) = Self::extract_epoch_info(line) {
-                status.epoch = epoch;
-                status.total_epochs = total;
-                status.progress_percent = (epoch as f32 / total as f32) * 100.0;
-            }
-        }
+    pub async fn get_error(&self, training_id: &str) -> Option<String> {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .and_then(|h| h.status.error.clone())
+    }
 
-        // Parse metrics - YOLO outputs metrics at end of epoch
-        // Format: "metrics/mAP50(B): 0.85  metrics/mAP50-95(B): 0.65"
-        if let Some(v) = Self::extract_float(line, "box_loss") {
-            status.metrics.train_box_loss = v;
-        }
-        if let Some(v) = Self::extract_float(line, "cls_loss") {
-            status.metrics.train_cls_loss = v;
-        }
-        if let Some(v) = Self::extract_float(line, "dfl_loss") {
-            status.metrics.train_dfl_loss = v;
-        }
-        if let Some(v) = Self::extract_float(line, "mAP50") {
-            status.metrics.map50 = v;
-        }
-        if let Some(v) = Self::extract_float(line, "mAP50-95") {
-            status.metrics.map50_95 = v;
-        }
-        if let Some(v) = Self::extract_float(line, "precision") {
-            status.metrics.precision = v;
-        }
-        if let Some(v) = Self::extract_float(line, "recall") {
-            status.metrics.recall = v;
+    pub async fn get_model_path(&self, training_id: &str) -> Option<String> {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .and_then(|h| h.model_path.clone())
+    }
+
+    /// Check if a model exists locally in cache directory
+    pub async fn check_model(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
+        let cache_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(|h| std::path::PathBuf::from(h).join(".cache").join("ultralytics"))
+            .unwrap_or_else(|_| std::path::PathBuf::from(".cache/ultralytics"));
+
+        let model_path = cache_dir.join(model_name);
+
+        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            Ok((true, Some(model_path.to_string_lossy().to_string())))
+        } else {
+            Ok((false, None))
         }
     }
 
-    fn extract_epoch_info(line: &str) -> Option<(u32, u32)> {
-        // Try to parse "Epoch 1/50" pattern
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        for (i, part) in parts.iter().enumerate() {
-            if *part == "Epoch" && i + 1 < parts.len() {
-                let epoch_part = parts[i + 1]; // "1/50"
-                let nums: Vec<&str> = epoch_part.split('/').collect();
-                if nums.len() == 2 {
-                    if let (Ok(current), Ok(total)) = (nums[0].parse::<u32>(), nums[1].parse::<u32>()) {
-                        return Some((current, total));
+    /// Download a model directly with progress tracking
+    pub async fn download_model(
+        &self,
+        model_name: &str,
+        progress_callback: impl Fn(String),
+    ) -> Result<String, String> {
+        use std::path::PathBuf;
+
+        let download_urls = [
+            format!(
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
+                model_name
+            ),
+            format!(
+                "https://github.com/ultralytics/assets/releases/download/v8.3.0/{}",
+                model_name
+            ),
+        ];
+
+        let cache_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(|h| PathBuf::from(h).join(".cache").join("ultralytics"))
+            .unwrap_or_else(|_| PathBuf::from(".cache/ultralytics"));
+
+        let model_path = cache_dir.join(model_name);
+
+        // Check if model already exists
+        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            progress_callback(format!("模型已在缓存中: {}", model_path.display()));
+            return Ok(model_path.to_string_lossy().to_string());
+        }
+
+        if let Some(parent) = model_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+        }
+
+        progress_callback(format!("正在下载模型 {}...", model_name));
+
+        let mut last_error = String::new();
+        for url in &download_urls {
+            progress_callback(format!("尝试从 {}", url));
+
+            match self
+                .download_file_with_progress(url, &model_path, |msg| progress_callback(msg))
+                .await
+            {
+                Ok(_) => {
+                    progress_callback("正在验证模型...".to_string());
+                    if self.validate_model_file(&model_path).await {
+                        progress_callback(format!("模型已保存到: {}", model_path.display()));
+                        return Ok(model_path.to_string_lossy().to_string());
+                    } else {
+                        last_error = "模型验证失败".to_string();
+                        let _ = std::fs::remove_file(&model_path);
                     }
+                }
+                Err(e) => {
+                    last_error = e;
                 }
             }
         }
-        None
+
+        Err(format!("下载失败: {}", last_error))
     }
 
-    fn extract_float(line: &str, metric: &str) -> Option<f32> {
-        // Simple float extraction - looks for "metric: value" pattern
-        if let Some(pos) = line.find(metric) {
-            let rest = &line[pos..];
-            if let Some(colon_pos) = rest.find(':') {
-                let value_str = &rest[colon_pos + 1..];
-                let value = value_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<f32>().ok());
-                return value;
+    async fn download_file_with_progress(
+        &self,
+        url: &str,
+        path: &std::path::PathBuf,
+        progress_callback: impl Fn(String),
+    ) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("网络请求失败: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP错误: {}", response.status()));
+        }
+
+        let total_size = response.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| format!("Failed to create file: {}", e))?;
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("下载出错: {}", e))?;
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|e| format!("写入文件失败: {}", e))?;
+            file.flush()
+                .await
+                .map_err(|e| format!("刷新文件失败: {}", e))?;
+            downloaded += chunk.len() as u64;
+
+            if total_size > 0 {
+                let percent = (downloaded as f64 / total_size as f64 * 100.0) as u32;
+                progress_callback(format!(
+                    "下载进度: {}% ({}/{})",
+                    percent,
+                    Self::format_bytes(downloaded),
+                    Self::format_bytes(total_size)
+                ));
             }
         }
-        None
+
+        Ok(())
+    }
+
+    async fn validate_model_file(&self, path: &std::path::PathBuf) -> bool {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if metadata.len() < 1_000_000 {
+                eprintln!("[Trainer] Model file too small: {}", metadata.len());
+                return false;
+            }
+        }
+        true
+    }
+
+    fn format_bytes(bytes: u64) -> String {
+        const KB: u64 = 1024;
+        const MB: u64 = KB * 1024;
+        const GB: u64 = MB * 1024;
+
+        if bytes >= GB {
+            format!("{:.1} GB", bytes as f64 / GB as f64)
+        } else if bytes >= MB {
+            format!("{:.1} MB", bytes as f64 / MB as f64)
+        } else if bytes >= KB {
+            format!("{:.1} KB", bytes as f64 / KB as f64)
+        } else {
+            format!("{} B", bytes)
+        }
     }
 }
 

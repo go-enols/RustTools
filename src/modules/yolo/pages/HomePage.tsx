@@ -1,5 +1,6 @@
 import { PenTool, Train, BarChart3, Video, FolderOpen, Clock, HelpCircle } from 'lucide-react';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
+import PythonEnvCheck from '../components/PythonEnvCheck';
 
 interface YoloHomePageProps {
   onNavigate: (page: 'annotation' | 'training' | 'results' | 'video' | 'settings') => void;
@@ -28,6 +29,17 @@ export default function YoloHomePage({ onNavigate, onOpenHelp }: YoloHomePagePro
             当前项目: <span style={{ color: 'var(--accent-primary)' }}>{currentProject.name}</span>
           </p>
         )}
+
+      {/* Python Environment Check */}
+      <div style={{
+        marginBottom: 'var(--spacing-2xl)',
+        background: 'var(--bg-elevated)',
+        borderRadius: 'var(--radius-lg)',
+        border: '1px solid var(--border-default)',
+        overflow: 'hidden'
+      }}>
+        <PythonEnvCheck />
+      </div>
       </div>
 
       {/* Quick Actions */}

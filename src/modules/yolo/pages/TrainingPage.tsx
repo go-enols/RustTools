@@ -1,13 +1,89 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Play,
   Square,
   Settings2,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { useTrainingStore, TrainingConfig, TrainingMetrics } from '../../../core/stores/trainingStore';
-import * as echarts from 'echarts';
+import {
+  checkModel,
+  downloadModel,
+} from '../../../core/api';
+import { listen } from '@tauri-apps/api/event';
+import { DownloadModal } from '../../../shared/components/ui/Modal';
+
+interface PythonEnvInfo {
+  python_exists: boolean;
+  python_version: string | null;
+  torch_exists: boolean;
+  torch_version: string | null;
+  torchaudio_exists: boolean;
+  cuda_available: boolean;
+  cuda_version: string | null;
+  ultralytics_exists: boolean;
+  ultralytics_version: string | null;
+  yolo_command_exists: boolean;
+}
+
+// YOLO model download URLs
+const MODEL_DOWNLOAD_URLS: Record<string, string> = {
+  // YOLO11 (最新一代)
+  'yolo11n.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11n.pt',
+  'yolo11s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11s.pt',
+  'yolo11m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11m.pt',
+  'yolo11l.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11l.pt',
+  'yolo11x.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11x.pt',
+  // YOLOv10
+  'yolo10n.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10n.pt',
+  'yolo10s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10s.pt',
+  'yolo10m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10m.pt',
+  'yolo10b.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10b.pt',
+  'yolo10l.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10l.pt',
+  'yolo10x.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10x.pt',
+  // YOLOv9
+  'yolov9t.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9t.pt',
+  'yolov9s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9s.pt',
+  'yolov9m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9m.pt',
+  'yolov9c.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9c.pt',
+  'yolov9e.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9e.pt',
+  // YOLOv8 (8.3.0)
+  'yolov8n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt',
+  'yolov8s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s.pt',
+  'yolov8m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m.pt',
+  'yolov8l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l.pt',
+  'yolov8x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8x.pt',
+  'yolov8n6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n6.pt',
+  'yolov8s6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s6.pt',
+  'yolov8m6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m6.pt',
+  'yolov8l6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l6.pt',
+  'yolov8x6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8x6.pt',
+  // YOLOv6
+  'yolov6n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6n.pt',
+  'yolov6s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6s.pt',
+  'yolov6m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6m.pt',
+  'yolov6l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6l.pt',
+  'yolov6x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6x.pt',
+  // YOLOv5
+  'yolov5n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5n.pt',
+  'yolov5s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5s.pt',
+  'yolov5m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5m.pt',
+  'yolov5l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5l.pt',
+  'yolov5x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5x.pt',
+  'yolov5n6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5n6.pt',
+  'yolov5s6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5s6.pt',
+  'yolov5m6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5m6.pt',
+  'yolov5l6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5l6.pt',
+  'yolov5x6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5x6.pt',
+  // YOLOv3
+  'yolov3u.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3u.pt',
+  'yolov3-spp.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-spp.pt',
+  'yolov3-tiny.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-tiny.pt',
+  'yolov3-son.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-son.pt',
+};
 
 const defaultConfig: TrainingConfig = {
   base_model: 'yolo11s.pt',
@@ -46,141 +122,33 @@ const defaultConfig: TrainingConfig = {
   cache: false,
 };
 
-// Chart configuration for 10 charts in 2 rows of 5
-const chartConfigs = [
-  { title: 'train/box_loss', metricKey: 'trainBoxLoss', color: '#52c41a' },
-  { title: 'train/cls_loss', metricKey: 'trainClsLoss', color: '#1677ff' },
-  { title: 'train/dfl_loss', metricKey: 'trainDflLoss', color: '#faad14' },
-  { title: 'metrics/precision(B)', metricKey: 'precision', color: '#722ed1' },
-  { title: 'metrics/recall(B)', metricKey: 'recall', color: '#ff4d4f' },
-  { title: 'val/box_loss', metricKey: 'valBoxLoss', color: '#52c41a' },
-  { title: 'val/cls_loss', metricKey: 'valClsLoss', color: '#1677ff' },
-  { title: 'val/dfl_loss', metricKey: 'valDflLoss', color: '#faad14' },
-  { title: 'metrics/mAP50(B)', metricKey: 'map50', color: '#722ed1' },
-  { title: 'metrics/mAP50-95(B)', metricKey: 'map50_95', color: '#ff4d4f' },
-];
-
 export default function TrainingPage() {
-  const { isTraining, currentEpoch, totalEpochs, metrics, startTraining, stopTraining, updateMetrics } = useTrainingStore();
+  const { isTraining, currentEpoch, totalEpochs, metrics, error, startTraining, stopTraining, clearError } = useTrainingStore();
   const [config, setConfig] = useState<TrainingConfig>(defaultConfig);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
   const [remainingTime, setRemainingTime] = useState('--:--:--');
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [cudaAvailable, setCudaAvailable] = useState(false);
 
-  // Create 10 separate refs for 10 charts
-  const chartRef0 = useRef<HTMLDivElement>(null);
-  const chartRef1 = useRef<HTMLDivElement>(null);
-  const chartRef2 = useRef<HTMLDivElement>(null);
-  const chartRef3 = useRef<HTMLDivElement>(null);
-  const chartRef4 = useRef<HTMLDivElement>(null);
-  const chartRef5 = useRef<HTMLDivElement>(null);
-  const chartRef6 = useRef<HTMLDivElement>(null);
-  const chartRef7 = useRef<HTMLDivElement>(null);
-  const chartRef8 = useRef<HTMLDivElement>(null);
-  const chartRef9 = useRef<HTMLDivElement>(null);
-
-  const chartRefs = [chartRef0, chartRef1, chartRef2, chartRef3, chartRef4, chartRef5, chartRef6, chartRef7, chartRef8, chartRef9];
-  const chartInstances = useRef<echarts.ECharts[]>([]);
-
-  // Initialize charts
+  // Listen for model download progress
   useEffect(() => {
-    // Create chart instances for each ref
-    chartConfigs.forEach((cfg, index) => {
-      const dom = chartRefs[index].current;
-      if (!dom) return;
-
-      const chart = echarts.init(dom);
-      chartInstances.current[index] = chart;
-
-      const option = {
-        backgroundColor: 'transparent',
-        grid: { top: 30, right: 20, bottom: 30, left: 50 },
-        xAxis: {
-          type: 'category' as const,
-          data: [] as number[],
-          axisLine: { lineStyle: { color: '#303030' } },
-          axisLabel: { color: '#6d6d6d', fontSize: 10 },
-          splitLine: { show: false }
-        },
-        yAxis: {
-          type: 'value' as const,
-          axisLine: { lineStyle: { color: '#303030' } },
-          axisLabel: { color: '#6d6d6d', fontSize: 10 },
-          splitLine: { lineStyle: { color: '#3a3a3a' } }
-        },
-        series: [{
-          name: cfg.title,
-          type: 'line' as const,
-          data: [] as number[],
-          smooth: true,
-          lineStyle: { width: 2 },
-          itemStyle: { color: cfg.color },
-          symbol: 'circle',
-          symbolSize: 4,
-        }],
-        legend: { textStyle: { color: '#b0b0b0', fontSize: 11 }, top: 0 },
-        tooltip: { trigger: 'axis' as const, axisPointer: { type: 'cross' as const } },
-      };
-
-      chart.setOption(option);
+    const unlisten = listen<{ model: string; message: string }>('model-download-progress', (event) => {
+      setDownloadProgress(event.payload.message);
     });
-
-    // Handle resize
-    const handleResize = () => {
-      chartInstances.current.forEach((chart) => {
-        if (chart) chart.resize();
-      });
-    };
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
-      chartInstances.current.forEach((chart) => {
-        if (chart) chart.dispose();
-      });
+      unlisten.then(fn => fn());
     };
   }, []);
 
-  // Update charts when metrics change
-  useEffect(() => {
-    if (metrics.length === 0) return;
-
-    const epochs = metrics.map((m) => m.epoch);
-
-    chartConfigs.forEach((cfg, index) => {
-      const chart = chartInstances.current[index];
-      if (!chart) return;
-
-      chart.setOption({
-        xAxis: { data: epochs },
-        series: [{
-          data: metrics.map((m) => m[cfg.metricKey as keyof TrainingMetrics] as number),
-        }],
-      });
-    });
-  }, [metrics]);
-
-  // Simulate training updates
+  // Update time display during training
   useEffect(() => {
     if (!isTraining) return;
 
     const interval = setInterval(() => {
-      const newMetrics: TrainingMetrics = {
-        epoch: currentEpoch + 1,
-        trainBoxLoss: Math.random() * 0.5 + 0.1,
-        trainClsLoss: Math.random() * 0.3 + 0.05,
-        trainDflLoss: Math.random() * 0.2 + 0.02,
-        valBoxLoss: Math.random() * 0.4 + 0.1,
-        valClsLoss: Math.random() * 0.25 + 0.05,
-        valDflLoss: Math.random() * 0.15 + 0.02,
-        precision: Math.random() * 0.2 + 0.7,
-        recall: Math.random() * 0.15 + 0.75,
-        map50: Math.random() * 0.1 + 0.75,
-        map50_95: Math.random() * 0.08 + 0.55,
-      };
-      updateMetrics(newMetrics);
-
-      // Update time
+      // Update elapsed time
       const elapsed = new Date();
       const start = useTrainingStore.getState().startTime;
       if (start) {
@@ -190,9 +158,9 @@ export default function TrainingPage() {
         const secs = diff % 60;
         setElapsedTime(`${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
-        if (newMetrics.epoch > 0) {
-          const avgTimePerEpoch = diff / newMetrics.epoch;
-          const remaining = Math.floor(avgTimePerEpoch * (totalEpochs - newMetrics.epoch));
+        if (currentEpoch > 0) {
+          const avgTimePerEpoch = diff / currentEpoch;
+          const remaining = Math.floor(avgTimePerEpoch * (totalEpochs - currentEpoch));
           const remHours = Math.floor(remaining / 3600);
           const remMins = Math.floor((remaining % 3600) / 60);
           const remSecs = remaining % 60;
@@ -202,10 +170,44 @@ export default function TrainingPage() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isTraining, currentEpoch, totalEpochs, updateMetrics]);
+  }, [isTraining, currentEpoch, totalEpochs]);
 
-  const handleStartTraining = () => {
+  const handleStartTraining = async () => {
+    const modelName = config.base_model;
+
+    // First check if model exists
+    const checkResult = await checkModel(modelName);
+
+    if (checkResult.success && checkResult.data) {
+      if (!checkResult.data.exists) {
+        // Model doesn't exist, need to download
+        setShowDownloadModal(true);
+        setDownloadProgress(`正在检查模型 ${modelName}...`);
+        setDownloadError('');
+
+        const downloadResult = await downloadModel(modelName);
+
+        if (!downloadResult.success || !downloadResult.data?.success) {
+          const errorMsg = downloadResult.error || downloadResult.data?.error || '模型下载失败';
+          setDownloadError(errorMsg);
+          return;
+        }
+
+        setShowDownloadModal(false);
+      }
+    } else {
+      console.warn('检查模型失败，将尝试直接开始训练:', checkResult.error);
+    }
+
+    // Start training
     startTraining(config);
+  };
+
+  const handleManualDownload = () => {
+    const url = MODEL_DOWNLOAD_URLS[config.base_model];
+    if (url) {
+      window.open(url, '_blank');
+    }
   };
 
   const progress = totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0;
@@ -219,7 +221,7 @@ export default function TrainingPage() {
             <h1 className="text-lg font-semibold">模型训练</h1>
             <p className="text-sm text-tertiary mt-sm">训练YOLO目标检测模型</p>
           </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
+          <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
             {!isTraining ? (
               <button className="btn btn-primary" onClick={handleStartTraining}>
                 <Play size={16} />
@@ -237,408 +239,633 @@ export default function TrainingPage() {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <div style={{ flex: 1, overflow: 'auto', padding: 'var(--spacing-lg)' }}>
-        {/* Training Controls */}
-        <div className="training-controls" style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--spacing-xl)' }}>
-            <div>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>基础模型</span>
-              <select
-                className="select"
-                value={config.base_model}
-                onChange={(e) => setConfig({ ...config, base_model: e.target.value })}
-                style={{ marginLeft: 8 }}
-              >
-                <option value="yolo11n.pt">YOLO11n</option>
-                <option value="yolo11s.pt">YOLO11s</option>
-                <option value="yolo11m.pt">YOLO11m</option>
-                <option value="yolov8n.pt">YOLOv8n</option>
-                <option value="yolov8s.pt">YOLOv8s</option>
-              </select>
-            </div>
-            <div>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>训练轮次</span>
-              <input
-                type="number"
-                className="input"
-                value={config.epochs}
-                onChange={(e) => setConfig({ ...config, epochs: parseInt(e.target.value) || 50 })}
-                style={{ width: 80, marginLeft: 8, textAlign: 'center' }}
-              />
-            </div>
-            <div>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>批处理</span>
-              <input
-                type="number"
-                className="input"
-                value={config.batch_size}
-                onChange={(e) => setConfig({ ...config, batch_size: parseInt(e.target.value) || 12 })}
-                style={{ width: 60, marginLeft: 8, textAlign: 'center' }}
-              />
+          {/* Training Controls */}
+          <div className="training-controls" style={{ marginBottom: 'var(--spacing-lg)' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--spacing-xl)' }}>
+              <div>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>基础模型</span>
+                <select
+                  className="select"
+                  value={config.base_model}
+                  onChange={(e) => setConfig({ ...config, base_model: e.target.value })}
+                  style={{ marginLeft: 8, minWidth: 200 }}
+                >
+                  <optgroup label="YOLO11 (最新)">
+                    <option value="yolo11n.pt">YOLO11n - 最小/最快</option>
+                    <option value="yolo11s.pt">YOLO11s - 小/快</option>
+                    <option value="yolo11m.pt">YOLO11m - 中/平衡</option>
+                    <option value="yolo11l.pt">YOLO11l - 大/准</option>
+                    <option value="yolo11x.pt">YOLO11x - 最大/最准</option>
+                  </optgroup>
+                  <optgroup label="YOLOv10">
+                    <option value="yolo10n.pt">YOLOv10n - 最小/最快</option>
+                    <option value="yolo10s.pt">YOLOv10s - 小/快</option>
+                    <option value="yolo10m.pt">YOLOv10m - 中/平衡</option>
+                    <option value="yolo10b.pt">YOLOv10b - 中/双头</option>
+                    <option value="yolo10l.pt">YOLOv10l - 大/准</option>
+                    <option value="yolo10x.pt">YOLOv10x - 最大/最准</option>
+                  </optgroup>
+                  <optgroup label="YOLOv9">
+                    <option value="yolov9t.pt">YOLOv9t - 最小/最快</option>
+                    <option value="yolov9s.pt">YOLOv9s - 小/快</option>
+                    <option value="yolov9m.pt">YOLOv9m - 中/平衡</option>
+                    <option value="yolov9c.pt">YOLOv9c - 平衡/紧凑</option>
+                    <option value="yolov9e.pt">YOLOv9e - 最大/最准</option>
+                  </optgroup>
+                  <optgroup label="YOLOv6">
+                    <option value="yolov6n.pt">YOLOv6n - 最小/最快</option>
+                    <option value="yolov6s.pt">YOLOv6s - 小/快</option>
+                    <option value="yolov6m.pt">YOLOv6m - 中/平衡</option>
+                    <option value="yolov6l.pt">YOLOv6l - 大/准</option>
+                    <option value="yolov6x.pt">YOLOv6x - 最大/最准</option>
+                  </optgroup>
+                  <optgroup label="YOLOv8">
+                    <option value="yolov8n.pt">YOLOv8n - 最小/最快</option>
+                    <option value="yolov8s.pt">YOLOv8s - 小/快</option>
+                    <option value="yolov8m.pt">YOLOv8m - 中/平衡</option>
+                    <option value="yolov8l.pt">YOLOv8l - 大/准</option>
+                    <option value="yolov8x.pt">YOLOv8x - 最大/最准</option>
+                    <option value="yolov8n6.pt">YOLOv8n6 - 640输入/最小</option>
+                    <option value="yolov8s6.pt">YOLOv8s6 - 640输入/小</option>
+                    <option value="yolov8m6.pt">YOLOv8m6 - 640输入/中</option>
+                    <option value="yolov8l6.pt">YOLOv8l6 - 640输入/大</option>
+                    <option value="yolov8x6.pt">YOLOv8x6 - 640输入/最大</option>
+                  </optgroup>
+                  <optgroup label="YOLOv5">
+                    <option value="yolov5n.pt">YOLOv5n - 最小/最快</option>
+                    <option value="yolov5s.pt">YOLOv5s - 小/快</option>
+                    <option value="yolov5m.pt">YOLOv5m - 中/平衡</option>
+                    <option value="yolov5l.pt">YOLOv5l - 大/准</option>
+                    <option value="yolov5x.pt">YOLOv5x - 最大/最准</option>
+                    <option value="yolov5n6.pt">YOLOv5n6 - 1280输入/最小</option>
+                    <option value="yolov5s6.pt">YOLOv5s6 - 1280输入/小</option>
+                    <option value="yolov5m6.pt">YOLOv5m6 - 1280输入/中</option>
+                    <option value="yolov5l6.pt">YOLOv5l6 - 1280输入/大</option>
+                    <option value="yolov5x6.pt">YOLOv5x6 - 1280输入/最大</option>
+                  </optgroup>
+                  <optgroup label="YOLOv3">
+                    <option value="yolov3u.pt">YOLOv3u - 原版升级</option>
+                    <option value="yolov3-spp.pt">YOLOv3-spp - SPP层增强</option>
+                    <option value="yolov3-tiny.pt">YOLOv3-tiny - 极小/最快</option>
+                    <option value="yolov3-son.pt">YOLOv3-son - 改进版</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>训练轮次</span>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.epochs === 0 ? '' : config.epochs}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                      setConfig({ ...config, epochs: 0 });
+                    } else {
+                      const num = parseInt(val);
+                      if (!isNaN(num)) {
+                        setConfig({ ...config, epochs: num });
+                      }
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.epochs === 0) {
+                      setConfig({ ...config, epochs: 50 });
+                    }
+                  }}
+                  style={{ width: 80, marginLeft: 8, textAlign: 'center' }}
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>批处理</span>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.batch_size === 0 ? '' : config.batch_size}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, batch_size: 0 });
+                    } else {
+                      const num = parseInt(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, batch_size: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.batch_size === 0) setConfig({ ...config, batch_size: 12 });
+                  }}
+                  style={{ width: 60, marginLeft: 8, textAlign: 'center' }}
+                />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Progress */}
-        {isTraining && (
-          <div className="card" style={{ marginBottom: 'var(--spacing-lg)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
-              <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
-                训练进度: {currentEpoch} / {totalEpochs} Epochs ({progress.toFixed(1)}%)
-              </span>
-              <span style={{ fontSize: 14, color: 'var(--accent-primary)' }}>{progress.toFixed(1)}%</span>
-            </div>
-            <div className="progress-bar" style={{ height: 8 }}>
-              <div className="progress-fill" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="training-stats" style={{ marginTop: 'var(--spacing-md)' }}>
-              <span>已用时间: <strong>{elapsedTime}</strong></span>
-              <span>预计剩余: <strong>{remainingTime}</strong></span>
-              {metrics.length > 0 && (
-                <>
-                  <span>mAP50: <strong>{(metrics[metrics.length - 1].map50 * 100).toFixed(1)}%</strong></span>
-                  <span>Precision: <strong>{(metrics[metrics.length - 1].precision * 100).toFixed(1)}%</strong></span>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Charts Grid - Row 1 */}
-        <div className="chart-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: 'var(--spacing-md)' }}>
-          {chartConfigs.slice(0, 5).map((cfg, index) => (
-            <div key={cfg.title} className="chart-container">
-              <div className="chart-title">{cfg.title}</div>
-              <div ref={chartRefs[index]} className="chart-wrapper" />
-            </div>
-          ))}
-        </div>
-
-        {/* Charts Grid - Row 2 */}
-        <div className="chart-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: 'var(--spacing-lg)' }}>
-          {chartConfigs.slice(5, 10).map((cfg, index) => (
-            <div key={cfg.title} className="chart-container">
-              <div className="chart-title">{cfg.title}</div>
-              <div ref={chartRefs[index + 5]} className="chart-wrapper" />
-            </div>
-          ))}
-        </div>
-
-        {/* Log Panel */}
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">训练日志</span>
-          </div>
-          <div className="log-panel">
-            {metrics.length === 0 ? (
-              <div className="log-entry">等待开始训练...</div>
-            ) : (
-              metrics.slice(-10).map((m, i) => (
-                <div key={i} className="log-entry">
-                  Epoch {m.epoch}: box_loss={m.trainBoxLoss.toFixed(4)}, cls_loss={m.trainClsLoss.toFixed(4)}, mAP50={m.map50.toFixed(4)}, precision={m.precision.toFixed(4)}, recall={m.recall.toFixed(4)}
+          {/* Progress */}
+          {isTraining && (
+            <div className="card" style={{ marginBottom: 'var(--spacing-lg)', border: '1px solid var(--accent-primary)', background: 'rgba(22, 119, 255, 0.05)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
+                  正在训练 Epoch {currentEpoch} / {totalEpochs}
+                </span>
+                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>{progress.toFixed(1)}%</span>
+              </div>
+              <div className="progress-bar" style={{ height: 12 }}>
+                <div className="progress-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-lg)' }}>
+                <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>已用时间</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{elapsedTime}</div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Right Panel */}
-      <div className="right-panel" style={{ width: 280, overflow: 'auto', borderLeft: '1px solid var(--border-default)', background: 'var(--bg-surface)' }}>
-        <div className="panel-section">
-          <div className="panel-section-title">
-            <Settings2 size={14} />
-            基础参数
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>图像大小</label>
-              <input
-                type="number"
-                className="input"
-                value={config.image_size}
-                onChange={(e) => setConfig({ ...config, image_size: parseInt(e.target.value) || 640 })}
-                style={{ marginTop: 4 }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>设备ID</label>
-              <select
-                className="select"
-                value={config.device_id}
-                onChange={(e) => setConfig({ ...config, device_id: parseInt(e.target.value) })}
-                style={{ width: '100%', marginTop: 4 }}
-              >
-                <option value={0}>GPU 0</option>
-                <option value={1}>GPU 1</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Workers</label>
-              <input
-                type="number"
-                className="input"
-                value={config.workers}
-                onChange={(e) => setConfig({ ...config, workers: parseInt(e.target.value) || 8 })}
-                style={{ marginTop: 4 }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="panel-section">
-          <div
-            className="panel-section-title"
-            style={{ cursor: 'pointer' }}
-            onClick={() => setShowAdvanced(!showAdvanced)}
-          >
-            <Settings2 size={14} />
-            数据增强
-            {showAdvanced ? <ChevronUp size={14} style={{ marginLeft: 'auto' }} /> : <ChevronDown size={14} style={{ marginLeft: 'auto' }} />}
-          </div>
-          {showAdvanced && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV色调</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={config.hsv_h}
-                  onChange={(e) => setConfig({ ...config, hsv_h: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_h.toFixed(2)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV饱和度</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={config.hsv_s}
-                  onChange={(e) => setConfig({ ...config, hsv_s: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_s.toFixed(2)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV亮度</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={config.hsv_v}
-                  onChange={(e) => setConfig({ ...config, hsv_v: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_v.toFixed(2)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>平移</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="0.5"
-                  step="0.05"
-                  value={config.translate}
-                  onChange={(e) => setConfig({ ...config, translate: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.translate.toFixed(2)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缩放</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={config.scale}
-                  onChange={(e) => setConfig({ ...config, scale: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.scale.toFixed(2)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>翻转概率</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={config.fliplr}
-                  onChange={(e) => setConfig({ ...config, fliplr: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.fliplr.toFixed(1)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={config.mosaic}
-                  onChange={(e) => setConfig({ ...config, mosaic: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mosaic.toFixed(1)}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>MixUp</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={config.mixup}
-                  onChange={(e) => setConfig({ ...config, mixup: parseFloat(e.target.value) })}
-                  className="slider"
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mixup.toFixed(1)}</span>
+                <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>预计剩余</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{remainingTime}</div>
+                </div>
+                {metrics.length > 0 && (
+                  <>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainBoxLoss.toFixed(4)}</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainClsLoss.toFixed(4)}</div>
+                    </div>
+                  </>
+                )}
+                {metrics.length > 0 && metrics[metrics.length - 1].map50 > 0 && (
+                  <>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>mAP50</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent-primary)' }}>{(metrics[metrics.length - 1].map50 * 100).toFixed(1)}%</div>
+                    </div>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Precision</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{(metrics[metrics.length - 1].precision * 100).toFixed(1)}%</div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
-        </div>
 
-        {/* Optimizer Parameters */}
-        <div className="panel-section">
-          <div className="panel-section-title">
-            <Settings2 size={14} />
-            优化器
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>优化器</label>
-              <select
-                className="select"
-                value={config.optimizer}
-                onChange={(e) => setConfig({ ...config, optimizer: e.target.value as 'SGD' | 'Adam' | 'AdamW' })}
-                style={{ width: '100%', marginTop: 4 }}
-              >
-                <option value="SGD">SGD</option>
-                <option value="Adam">Adam</option>
-                <option value="AdamW">AdamW</option>
-              </select>
+          {/* Error Display */}
+          {error && (
+            <div className="card" style={{ marginBottom: 'var(--spacing-lg)', border: '1px solid var(--color-danger, #ff4d4f)', background: 'rgba(255, 77, 79, 0.1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 14, color: 'var(--color-danger, #ff4d4f)', fontWeight: 500, marginBottom: 4 }}>
+                    训练错误
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {error}
+                  </div>
+                </div>
+                <button
+                  onClick={clearError}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 8,
+                    color: 'var(--text-tertiary)'
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>初始学习率</label>
-              <input
-                type="number"
-                className="input"
-                value={config.lr0}
-                onChange={(e) => setConfig({ ...config, lr0: parseFloat(e.target.value) || 0.01 })}
-                step="0.001"
-                style={{ marginTop: 4 }}
-              />
+          )}
+
+          {/* Log Panel */}
+          <div className="card" style={{ marginBottom: 'var(--spacing-lg)' }}>
+            <div className="card-header">
+              <span className="card-title">训练日志</span>
             </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>最终学习率因子</label>
-              <input
-                type="number"
-                className="input"
-                value={config.lrf}
-                onChange={(e) => setConfig({ ...config, lrf: parseFloat(e.target.value) || 0.01 })}
-                step="0.001"
-                style={{ marginTop: 4 }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>动量</label>
-              <input
-                type="number"
-                className="input"
-                value={config.momentum}
-                onChange={(e) => setConfig({ ...config, momentum: parseFloat(e.target.value) || 0.937 })}
-                step="0.001"
-                style={{ marginTop: 4 }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>权重衰减</label>
-              <input
-                type="number"
-                className="input"
-                value={config.weight_decay}
-                onChange={(e) => setConfig({ ...config, weight_decay: parseFloat(e.target.value) || 0.0005 })}
-                step="0.0001"
-                style={{ marginTop: 4 }}
-              />
+            <div className="log-panel" style={{ maxHeight: 300, overflow: 'auto' }}>
+              {metrics.length === 0 ? (
+                <div className="log-entry">等待开始训练...</div>
+              ) : (
+                metrics.slice(-20).map((m, i) => (
+                  <div key={i} className="log-entry">
+                    Epoch {m.epoch}: box_loss={m.trainBoxLoss.toFixed(4)}, cls_loss={m.trainClsLoss.toFixed(4)}, mAP50={m.map50.toFixed(4)}, precision={m.precision.toFixed(4)}, recall={m.recall.toFixed(4)}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
 
-        {/* Advanced Settings */}
-        <div className="panel-section">
-          <div className="panel-section-title">
-            <Settings2 size={14} />
-            高级设置
+        {/* Right Panel */}
+        <div className="right-panel" style={{ width: 280, overflow: 'auto', borderLeft: '1px solid var(--border-default)', background: 'var(--bg-surface)' }}>
+          <div className="panel-section">
+            <div className="panel-section-title">
+              <Settings2 size={14} />
+              基础参数
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>图像大小</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.image_size === 0 ? '' : config.image_size}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, image_size: 0 });
+                    } else {
+                      const num = parseInt(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, image_size: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.image_size === 0) setConfig({ ...config, image_size: 640 });
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>设备</label>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const result = await invoke<{ success: boolean; data: PythonEnvInfo | null }>('check_python_env');
+                        if (result.success && result.data) {
+                          setCudaAvailable(result.data.cuda_available);
+                        }
+                      } catch (e) {
+                        console.warn('Failed to check CUDA:', e);
+                      }
+                    }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
+                    title="重新检测 CUDA"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                </div>
+                <select
+                  className="select"
+                  value={config.device_id}
+                  onChange={(e) => setConfig({ ...config, device_id: parseInt(e.target.value) })}
+                  style={{ width: '100%', marginTop: 4 }}
+                >
+                  {cudaAvailable ? (
+                    <>
+                      <option value={0}>GPU 0</option>
+                      <option value={1}>GPU 1</option>
+                    </>
+                  ) : (
+                    <option value={-1}>CPU (CUDA 不可用)</option>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Workers</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.workers === 0 ? '' : config.workers}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, workers: 0 });
+                    } else {
+                      const num = parseInt(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, workers: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.workers === 0) setConfig({ ...config, workers: 8 });
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-              <input
-                type="checkbox"
-                id="amp"
-                checked={config.amp}
-                onChange={(e) => setConfig({ ...config, amp: e.target.checked })}
-              />
-              <label htmlFor="amp" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>混合精度 (AMP)</label>
+
+          <div className="panel-section">
+            <div
+              className="panel-section-title"
+              style={{ cursor: 'pointer' }}
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <Settings2 size={14} />
+              数据增强
+              {showAdvanced ? <ChevronUp size={14} style={{ marginLeft: 'auto' }} /> : <ChevronDown size={14} style={{ marginLeft: 'auto' }} />}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-              <input
-                type="checkbox"
-                id="cos_lr"
-                checked={config.cos_lr}
-                onChange={(e) => setConfig({ ...config, cos_lr: e.target.checked })}
-              />
-              <label htmlFor="cos_lr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>余弦学习率</label>
+            {showAdvanced && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV色调</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.hsv_h}
+                    onChange={(e) => setConfig({ ...config, hsv_h: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_h.toFixed(2)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV饱和度</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.hsv_s}
+                    onChange={(e) => setConfig({ ...config, hsv_s: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_s.toFixed(2)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV亮度</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.hsv_v}
+                    onChange={(e) => setConfig({ ...config, hsv_v: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_v.toFixed(2)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>平移</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="0.5"
+                    step="0.05"
+                    value={config.translate}
+                    onChange={(e) => setConfig({ ...config, translate: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.translate.toFixed(2)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缩放</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.scale}
+                    onChange={(e) => setConfig({ ...config, scale: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.scale.toFixed(2)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>翻转概率</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={config.fliplr}
+                    onChange={(e) => setConfig({ ...config, fliplr: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.fliplr.toFixed(1)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={config.mosaic}
+                    onChange={(e) => setConfig({ ...config, mosaic: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mosaic.toFixed(1)}</span>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>MixUp</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={config.mixup}
+                    onChange={(e) => setConfig({ ...config, mixup: parseFloat(e.target.value) })}
+                    className="slider"
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mixup.toFixed(1)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Optimizer Parameters */}
+          <div className="panel-section">
+            <div className="panel-section-title">
+              <Settings2 size={14} />
+              优化器
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-              <input
-                type="checkbox"
-                id="rect"
-                checked={config.rect}
-                onChange={(e) => setConfig({ ...config, rect: e.target.checked })}
-              />
-              <label htmlFor="rect" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>矩形训练</label>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-              <input
-                type="checkbox"
-                id="cache"
-                checked={config.cache}
-                onChange={(e) => setConfig({ ...config, cache: e.target.checked })}
-              />
-              <label htmlFor="cache" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缓存图像</label>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>早停耐心</label>
-              <input
-                type="number"
-                className="input"
-                value={config.patience}
-                onChange={(e) => setConfig({ ...config, patience: parseInt(e.target.value) || 50 })}
-                style={{ marginTop: 4 }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic关闭轮次</label>
-              <input
-                type="number"
-                className="input"
-                value={config.close_mosaic}
-                onChange={(e) => setConfig({ ...config, close_mosaic: parseInt(e.target.value) || 10 })}
-                style={{ marginTop: 4 }}
-              />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>优化器</label>
+                <select
+                  className="select"
+                  value={config.optimizer}
+                  onChange={(e) => setConfig({ ...config, optimizer: e.target.value as 'SGD' | 'Adam' | 'AdamW' })}
+                  style={{ width: '100%', marginTop: 4 }}
+                >
+                  <option value="SGD">SGD</option>
+                  <option value="Adam">Adam</option>
+                  <option value="AdamW">AdamW</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>初始学习率</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.lr0}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, lr0: 0 });
+                    } else {
+                      const num = parseFloat(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, lr0: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.lr0 === 0) setConfig({ ...config, lr0: 0.01 });
+                  }}
+                  step="0.001"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>最终学习率因子</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.lrf}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, lrf: 0 });
+                    } else {
+                      const num = parseFloat(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, lrf: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.lrf === 0) setConfig({ ...config, lrf: 0.01 });
+                  }}
+                  step="0.001"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>动量</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.momentum}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, momentum: 0 });
+                    } else {
+                      const num = parseFloat(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, momentum: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.momentum === 0) setConfig({ ...config, momentum: 0.937 });
+                  }}
+                  step="0.001"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>权重衰减</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.weight_decay}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, weight_decay: 0 });
+                    } else {
+                      const num = parseFloat(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, weight_decay: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.weight_decay === 0) setConfig({ ...config, weight_decay: 0.0005 });
+                  }}
+                  step="0.0001"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
+
+          {/* Advanced Settings */}
+          <div className="panel-section">
+            <div className="panel-section-title">
+              <Settings2 size={14} />
+              高级设置
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                <input
+                  type="checkbox"
+                  id="amp"
+                  checked={config.amp}
+                  onChange={(e) => setConfig({ ...config, amp: e.target.checked })}
+                />
+                <label htmlFor="amp" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>混合精度 (AMP)</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                <input
+                  type="checkbox"
+                  id="cos_lr"
+                  checked={config.cos_lr}
+                  onChange={(e) => setConfig({ ...config, cos_lr: e.target.checked })}
+                />
+                <label htmlFor="cos_lr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>余弦学习率</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                <input
+                  type="checkbox"
+                  id="rect"
+                  checked={config.rect}
+                  onChange={(e) => setConfig({ ...config, rect: e.target.checked })}
+                />
+                <label htmlFor="rect" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>矩形训练</label>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
+                <input
+                  type="checkbox"
+                  id="cache"
+                  checked={config.cache}
+                  onChange={(e) => setConfig({ ...config, cache: e.target.checked })}
+                />
+                <label htmlFor="cache" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缓存图像</label>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>早停耐心</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.patience === 0 ? '' : config.patience}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, patience: 0 });
+                    } else {
+                      const num = parseInt(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, patience: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.patience === 0) setConfig({ ...config, patience: 50 });
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic关闭轮次</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={config.close_mosaic === 0 ? '' : config.close_mosaic}
+                  onChange={(e) => {
+                    if (e.target.value === '') {
+                      setConfig({ ...config, close_mosaic: 0 });
+                    } else {
+                      const num = parseInt(e.target.value);
+                      if (!isNaN(num)) setConfig({ ...config, close_mosaic: num });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    if (config.close_mosaic === 0) setConfig({ ...config, close_mosaic: 10 });
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Download Modal */}
+          <DownloadModal
+            isOpen={showDownloadModal}
+            title="下载模型"
+            message={`正在下载模型 ${config.base_model}，请稍候...`}
+            progress={downloadProgress}
+            error={downloadError}
+            downloadUrl={MODEL_DOWNLOAD_URLS[config.base_model]}
+            onManualDownload={handleManualDownload}
+          />
+        </div> </div>
     </div>
   );
 }

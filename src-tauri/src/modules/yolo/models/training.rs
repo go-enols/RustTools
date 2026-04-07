@@ -45,6 +45,7 @@ pub struct TrainingStatus {
     pub total_epochs: u32,
     pub progress_percent: f32,
     pub metrics: TrainingMetrics,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

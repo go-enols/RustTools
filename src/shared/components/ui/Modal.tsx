@@ -276,3 +276,158 @@ export function ConfirmModal({
     </Modal>
   );
 }
+
+interface DownloadModalProps {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  progress?: string;
+  error?: string;
+  downloadUrl?: string;
+  onManualDownload?: () => void;
+}
+
+export function DownloadModal({
+  isOpen,
+  title,
+  message,
+  progress,
+  error,
+  downloadUrl,
+  onManualDownload,
+}: DownloadModalProps) {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="download-modal-overlay">
+      <div className="download-modal-content">
+        <div className="download-modal-header">
+          <h3 className="download-modal-title">{title}</h3>
+        </div>
+        <div className="download-modal-body">
+          <p className="download-message">{message}</p>
+
+          {progress && (
+            <div className="download-progress">
+              <div className="download-spinner" />
+              <span>{progress}</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="download-error">
+              <p>{error}</p>
+              {downloadUrl && (
+                <button
+                  className="btn btn-primary download-manual-btn"
+                  onClick={onManualDownload}
+                >
+                  前往下载
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <style>{`
+        .download-modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 2000;
+          animation: modalFadeIn 0.15s ease-out;
+        }
+        .download-modal-content {
+          background: var(--bg-elevated);
+          border: 1px solid var(--border-default);
+          border-radius: 12px;
+          min-width: 400px;
+          max-width: 500px;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+          animation: modalSlideIn 0.15s ease-out;
+        }
+        .download-modal-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-default);
+        }
+        .download-modal-title {
+          margin: 0;
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .download-modal-body {
+          padding: 20px;
+        }
+        .download-message {
+          margin: 0 0 16px 0;
+          font-size: 14px;
+          color: var(--text-primary);
+          line-height: 1.5;
+        }
+        .download-progress {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          color: var(--accent-primary);
+          font-size: 13px;
+        }
+        .download-spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid var(--border-default);
+          border-top-color: var(--accent-primary);
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        .download-error {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .download-error p {
+          margin: 0;
+          font-size: 14px;
+          color: var(--color-danger, #ff4d4f);
+        }
+        .download-manual-btn {
+          align-self: flex-start;
+        }
+        .btn {
+          padding: 8px 16px;
+          font-size: 13px;
+          font-weight: 500;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.15s;
+          border: none;
+        }
+        .btn-primary {
+          background: var(--accent-primary);
+          color: var(--text-primary);
+        }
+        .btn-primary:hover {
+          background: var(--accent-hover);
+        }
+      `}</style>
+    </div>
+  );
+}

@@ -100,6 +100,7 @@ interface TrainingState {
   trainedModels: TrainedModel[];
   baseModels: BaseModel[];
   currentTrainingId: string | null;
+  error: string | null;
 
   startTraining: (config: TrainingConfig) => Promise<void>;
   stopTraining: () => Promise<void>;
@@ -110,6 +111,7 @@ interface TrainingState {
   removeTrainedModel: (id: string) => Promise<void>;
   loadTrainedModels: () => Promise<void>;
   loadBaseModels: () => Promise<void>;
+  clearError: () => void;
 }
 
 // Convert frontend config to API config
@@ -177,8 +179,10 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
   trainedModels: [],
   baseModels: [],
   currentTrainingId: null,
+  error: null,
 
   startTraining: async (config) => {
+    set({ error: null });  // Clear previous error
     const { currentTrainingId } = get();
     if (currentTrainingId) {
       console.warn('Training already in progress');
@@ -187,7 +191,8 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
 
     const { currentProject } = useWorkspaceStore.getState();
     if (!currentProject) {
-      console.error('No project open');
+      const error = '请先打开一个项目';
+      set({ error });
       return;
     }
 
@@ -235,22 +240,37 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
         success: boolean;
         model_path?: string;
         error?: string;
-      }>('training-complete', () => {
+      }>('training-complete', (event) => {
         unlistenProgress();
         unlistenComplete();
+        const { success, model_path, error } = event.payload;
+        if (success && model_path) {
+          // Add the trained model to the list
+          get().addTrainedModel({
+            projectName: useWorkspaceStore.getState().currentProject?.name || 'Unknown',
+            yoloVersion: config.base_model.replace('.pt', ''),
+            modelSize: '0',
+            bestEpoch: get().currentEpoch,
+            totalEpochs: get().totalEpochs,
+            map50: get().metrics[get().metrics.length - 1]?.map50 || 0,
+            map50_95: get().metrics[get().metrics.length - 1]?.map50_95 || 0,
+            modelPath: model_path,
+          });
+        }
         set({
           isTraining: false,
           isPaused: false,
           currentTrainingId: null,
+          error: success ? null : (error || '训练失败'),
         });
       });
 
       const response = await apiStartTraining(currentProject.path, toApiConfig(config));
 
       if (!response.success || !response.data) {
-        throw new Error(response.error || '启动训练失败');
         unlistenProgress();
         unlistenComplete();
+        throw new Error(response.error || '启动训练失败');
       }
 
       set({
@@ -264,7 +284,8 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
       });
     } catch (error) {
       console.error('Failed to start training:', error);
-      set({ isTraining: false, currentTrainingId: null });
+      const errorMessage = error instanceof Error ? error.message : '启动训练失败';
+      set({ isTraining: false, currentTrainingId: null, error: errorMessage });
     }
   },
 
@@ -360,4 +381,6 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
       });
     }
   },
+
+  clearError: () => set({ error: null }),
 }));

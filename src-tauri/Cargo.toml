@@ -25,5 +25,7 @@ tauri-plugin-shell = "2"
 base64 = "0.22"
 notify = "8"
 tokio = { version = "1", features = ["sync", "time", "process", "io-util", "macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
 rand = "0.8"
 hex = "0.4"
+reqwest = { version = "0.12", features = ["json", "stream"] }

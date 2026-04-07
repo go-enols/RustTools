@@ -134,31 +134,83 @@ pub async fn training_start(
             let state_inner = Arc::clone(&state);
 
             tokio::spawn(async move {
+                let mut last_epoch = 0u32;
+
                 loop {
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
                     let is_running = state_inner.is_training(&training_id_clone).await;
+                    let error = state_inner.get_error(&training_id_clone).await;
+                    let status = state_inner.get_status(&training_id_clone).await;
+
+                    if status.is_none() {
+                        eprintln!("[Trainer] Status is None for training_id={}, is_running={}", training_id_clone, is_running);
+                    }
+
+                    // Only emit progress if epoch has changed (new data from Python)
+                    if let Some(s) = &status {
+                        if s.epoch > last_epoch {
+                            eprintln!("[Trainer] Emitting progress: epoch={}, total={}, progress={}%, metrics.box_loss={}",
+                                s.epoch, s.total_epochs, s.progress_percent, s.metrics.train_box_loss);
+                            let event = TrainingProgressEvent {
+                                training_id: training_id_clone.clone(),
+                                epoch: s.epoch,
+                                total_epochs: s.total_epochs,
+                                progress_percent: s.progress_percent,
+                                metrics: s.metrics.clone(),
+                            };
+                            let _ = app_clone.emit("training-progress", event);
+                            eprintln!("[Trainer] Progress event emitted successfully");
+                            last_epoch = s.epoch;  // Update after emitting
+
+                            // Check if training is complete (epoch reached total)
+                            if s.epoch >= s.total_epochs && s.total_epochs > 0 && s.epoch > 0 {
+                                eprintln!("[Trainer] Training complete: epoch {} >= total {}", s.epoch, s.total_epochs);
+                                let model_path = state_inner.get_model_path(&training_id_clone).await;
+                                let event = TrainingCompleteEvent {
+                                    training_id: training_id_clone.clone(),
+                                    success: s.error.is_none(),
+                                    model_path: if s.error.is_none() { model_path } else { None },
+                                    error: s.error.clone(),
+                                };
+                                let _ = app_clone.emit("training-complete", event);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check if process is still running
                     if !is_running {
+                        eprintln!("[Trainer] Process not running (is_running=false), checking completion status");
+                        // Process ended - check if we have valid metrics
+                        if let Some(s) = &status {
+                            eprintln!("[Trainer] Status check: epoch={}, total_epochs={}, error={:?}", s.epoch, s.total_epochs, s.error);
+                            if s.epoch > 0 && s.total_epochs > 0 {
+                                // We have some training data, consider it complete
+                                let model_path = state_inner.get_model_path(&training_id_clone).await;
+                                let event = TrainingCompleteEvent {
+                                    training_id: training_id_clone.clone(),
+                                    success: s.error.is_none(),
+                                    model_path: if s.error.is_none() { model_path } else { None },
+                                    error: s.error.clone(),
+                                };
+                                eprintln!("[Trainer] Sending training-complete event (with data): success={}", s.error.is_none());
+                                let _ = app_clone.emit("training-complete", event);
+                                break;
+                            }
+                        }
+                        // No training data, emit error
+                        eprintln!("[Trainer] Sending training-complete event (error case): error={:?}", error);
                         let event = TrainingCompleteEvent {
                             training_id: training_id_clone.clone(),
-                            success: true,
-                            model_path: Some("runs/detect/train/weights/best.pt".to_string()),
-                            error: None,
+                            success: false,
+                            model_path: None,
+                            error: Some(error.unwrap_or_else(|| "Training process ended unexpectedly".to_string())),
                         };
                         let _ = app_clone.emit("training-complete", event);
                         break;
                     }
 
-                    if let Some(status) = state_inner.get_status(&training_id_clone).await {
-                        let event = TrainingProgressEvent {
-                            training_id: training_id_clone.clone(),
-                            epoch: status.epoch,
-                            total_epochs: status.total_epochs,
-                            progress_percent: status.progress_percent,
-                            metrics: status.metrics,
-                        };
-                        let _ = app_clone.emit("training-progress", event);
-                    }
                 }
             });
 
@@ -193,4 +245,68 @@ pub async fn training_resume(
 ) -> Result<CommandResponse<()>, String> {
     state.resume_training(&training_id).await?;
     Ok(CommandResponse::ok(()))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelCheckResult {
+    pub exists: bool,
+    pub model: String,
+    pub path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn yolo_check_model(
+    state: State<'_, Arc<TrainerService>>,
+    model_name: String,
+) -> Result<CommandResponse<ModelCheckResult>, String> {
+    match state.check_model(&model_name).await {
+        Ok((exists, path)) => Ok(CommandResponse::ok(ModelCheckResult {
+            exists,
+            model: model_name,
+            path,
+        })),
+        Err(e) => Ok(CommandResponse::err(e)),
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelDownloadResult {
+    pub success: bool,
+    pub model: String,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn yolo_download_model(
+    app: AppHandle,
+    state: State<'_, Arc<TrainerService>>,
+    model_name: String,
+) -> Result<CommandResponse<ModelDownloadResult>, String> {
+    let app_clone = app.clone();
+    let model_name_clone = model_name.clone();
+
+    let result = state
+        .download_model(&model_name, move |msg| {
+            let _ = app_clone.emit("model-download-progress", serde_json::json!({
+                "model": model_name_clone,
+                "message": msg
+            }));
+        })
+        .await;
+
+    match result {
+        Ok(path) => Ok(CommandResponse::ok(ModelDownloadResult {
+            success: true,
+            model: model_name,
+            path: Some(path),
+            error: None,
+        })),
+        Err(e) => Ok(CommandResponse::ok(ModelDownloadResult {
+            success: false,
+            model: model_name,
+            path: None,
+            error: Some(e),
+        })),
+    }
 }
