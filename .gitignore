@@ -67,3 +67,6 @@ coverage/
 .cache/
 .parcel-cache/
 .eslintcache
+
+# YOLO model files
+*.pt
