@@ -13,6 +13,10 @@ pnpm-lock.yaml
 # ====================
 src-tauri/target/
 Cargo.lock
+src-tauri/*spec
+src-tauri/__pycache__
+src-tauri/datasets
+src-tauri/capabilities
 .cargo/
 
 # ====================
@@ -70,3 +74,4 @@ coverage/
 
 # YOLO model files
 *.pt
+
