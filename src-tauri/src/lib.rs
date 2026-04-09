@@ -52,6 +52,10 @@ pub fn run() {
             modules::yolo::commands::video::video_capture_screenshot,
             modules::yolo::commands::video::video_extract_frames,
             modules::yolo::commands::video::video_inference_results,
+            // Device commands
+            modules::yolo::commands::device::device_list,
+            modules::yolo::commands::device::device_stats,
+            modules::yolo::commands::device::device_set_default,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
