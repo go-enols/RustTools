@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies (Ubuntu)
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -27,14 +27,6 @@ jobs:
             pkg-config \
             libssl-dev
 
-      - uses: actions/setup-rust@v1
-        with:
-          rustflags: ''
-
-      - name: cargo check (lib only, no Tauri bundling)
-        working-directory: src-tauri
-        run: cargo check --lib
-
-      - name: cargo check (full)
+      - name: cargo check
         working-directory: src-tauri
         run: cargo check 2>&1
