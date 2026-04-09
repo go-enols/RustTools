@@ -36,23 +36,15 @@ impl TrainerService {
     /// Find and start the Python sidecar process
     async fn start_sidecar(&self) -> Result<Child, String> {
         // Search paths: try multiple locations to find yolo_server.py
-        let search_paths = [
+        let search_paths: [std::path::PathBuf; 3] = [
             // Relative to cwd (project root when running `npm run tauri dev`)
             std::path::PathBuf::from("src-tauri/scripts/yolo_server.py"),
             std::path::PathBuf::from("scripts/yolo_server.py"),
-            // Relative to the binary's parent directory (src-tauri/)
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.join("scripts/yolo_server.py"))),
             // Relative to CARGO_MANIFEST_DIR (src-tauri/)
             std::path::PathBuf::from(
                 std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default(),
             )
             .join("scripts/yolo_server.py"),
-            // Standalone: try executable's grandparent (project root)
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("src-tauri/scripts/yolo_server.py"))),
         ];
 
         let script_path = search_paths

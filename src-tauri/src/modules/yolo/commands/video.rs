@@ -59,13 +59,14 @@ pub async fn video_inference_start(
     // Spawn inference in background
     tokio::spawn(async move {
         let app_clone = app.clone();
+        let app_clone_for_callback = app.clone();
         let callback = move |frame_idx: u32, boxes: Vec<AnnotationBox>| {
             let event = serde_json::json!({
                 "session_id": session_id_clone,
                 "frame": frame_idx,
                 "boxes": boxes,
             });
-            let _ = app_clone.emit("video-inference-frame", event);
+            let _ = app_clone_for_callback.emit("video-inference-frame", event);
         };
 
         match state_arc.run_inference(&session_id, &config, callback).await {
