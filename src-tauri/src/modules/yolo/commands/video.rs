@@ -56,6 +56,7 @@ pub async fn video_inference_start(
     let session_id_clone = session_id.clone();
     let session_id_clone2 = session_id.clone();
     let state_arc = Arc::clone(&state);
+    let session_id_return = session_id.clone();
 
     // Spawn inference in background
     tokio::spawn(async move {
@@ -88,7 +89,7 @@ pub async fn video_inference_start(
         }
     });
 
-    Ok(CommandResponse::ok(session_id))
+    Ok(CommandResponse::ok(session_id_return))
 }
 
 /// Stop video inference
