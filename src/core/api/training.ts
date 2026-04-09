@@ -23,9 +23,9 @@ export async function startTraining(
 /**
  * Stop current training
  */
-export async function stopTraining(): Promise<ApiResponse<void>> {
+export async function stopTraining(trainingId: string): Promise<ApiResponse<void>> {
   try {
-    return await invoke<ApiResponse<void>>('training_stop');
+    return await invoke<ApiResponse<void>>('training_stop', { trainingId });
   } catch (error) {
     console.error('[API] stopTraining error:', error);
     return { success: false, error: String(error) };
@@ -35,9 +35,9 @@ export async function stopTraining(): Promise<ApiResponse<void>> {
 /**
  * Pause current training
  */
-export async function pauseTraining(): Promise<ApiResponse<void>> {
+export async function pauseTraining(trainingId: string): Promise<ApiResponse<void>> {
   try {
-    return await invoke<ApiResponse<void>>('training_pause');
+    return await invoke<ApiResponse<void>>('training_pause', { trainingId });
   } catch (error) {
     console.error('[API] pauseTraining error:', error);
     return { success: false, error: String(error) };
@@ -47,9 +47,9 @@ export async function pauseTraining(): Promise<ApiResponse<void>> {
 /**
  * Resume paused training
  */
-export async function resumeTraining(): Promise<ApiResponse<void>> {
+export async function resumeTraining(trainingId: string): Promise<ApiResponse<void>> {
   try {
-    return await invoke<ApiResponse<void>>('training_resume');
+    return await invoke<ApiResponse<void>>('training_resume', { trainingId });
   } catch (error) {
     console.error('[API] resumeTraining error:', error);
     return { success: false, error: String(error) };

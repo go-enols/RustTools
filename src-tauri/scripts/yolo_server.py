@@ -3,6 +3,9 @@
 YOLO Training Server - stdin/stdout pipe communication
 Rust sends JSON commands via stdin, Python sends JSON events via stdout.
 Python actively reports progress, errors, and status via callbacks.
+
+Following Ultralytics official callback pattern:
+https://docs.ultralytics.com/modes/train/#callbacks
 """
 import sys
 import json
@@ -30,9 +33,8 @@ except Exception as e:
 print("YOLO server initialized", file=sys.stderr, flush=True)
 
 
-class YoloTrainer:
-    """YOLO trainer with active status reporting via callbacks."""
-
+# Global trainer state - shared by all callbacks (following Ultralytics pattern)
+class TrainerState:
     def __init__(self):
         self.running = False
         self.model = None
@@ -41,217 +43,235 @@ class YoloTrainer:
         self.total_epochs = 0
         self.current_metrics = {}
 
-    def send_event(self, event_type, data=None, error=None):
-        """Send JSON event to stdout (non-blocking)."""
-        event = {"type": event_type}
-        if data is not None:
-            event["data"] = data
-        if error is not None:
-            event["error"] = error
-        # Use flush=True to ensure immediate delivery
-        print(json.dumps(event), flush=True)
+_state = TrainerState()
 
-    def log(self, msg):
-        """Send log message."""
-        self.send_event("log", {"message": msg})
 
-    # ========== YOLO Callbacks ==========
+def send_event(event_type, data=None, error=None):
+    """Send JSON event to stdout (non-blocking)."""
+    event = {"type": event_type}
+    if data is not None:
+        event["data"] = data
+    if error is not None:
+        event["error"] = error
+    print(json.dumps(event), flush=True)
 
-    def on_pretrain_routine_start(self, trainer):
-        self.log("Initializing training...")
 
-    def on_pretrain_routine_end(self, trainer):
-        self.log("Initialization complete, starting training...")
+def log(msg):
+    """Send log message."""
+    send_event("log", {"message": msg})
 
-    def on_train_start(self, trainer):
-        self.running = True
-        self.total_epochs = trainer.epochs
-        print(f"DEBUG: on_train_start called, trainer.epochs={trainer.epochs}", flush=True, file=sys.stderr)
-        self.log(f"Training started: {self.total_epochs} epochs")
-        self.send_event("started", {
-            "total_epochs": self.total_epochs,
-            "device": str(trainer.device),
-        })
 
-    def on_train_epoch_start(self, trainer):
-        # trainer.epoch is 0-indexed, so add 1 for 1-indexed reporting (consistent with on_train_epoch_end)
-        epoch = trainer.epoch + 1
-        print(f"DEBUG: on_train_epoch_start called, epoch={epoch} (trainer.epoch was {trainer.epoch})", flush=True, file=sys.stderr)
+# ========== YOLO Callbacks (Ultralytics official pattern) ==========
+# These are global functions, not instance methods
 
-    def on_train_epoch_end(self, trainer):
-        """Called after each epoch - this is our main progress source."""
-        print(f"DEBUG: on_train_epoch_end called, running={self.running}, trainer.epoch={trainer.epoch}", flush=True, file=sys.stderr)
-        if not self.running:
-            print(f"DEBUG: on_train_epoch_end early return - not running", flush=True, file=sys.stderr)
-            return
+def on_pretrain_routine_start(trainer):
+    log("Initializing training...")
 
-        # trainer.epoch is 0-indexed, so add 1 for 1-indexed reporting
-        self.current_epoch = trainer.epoch + 1
-        print(f"DEBUG: on_train_epoch_end sending progress for epoch {self.current_epoch}/{self.total_epochs} (trainer.epoch was {trainer.epoch})", flush=True, file=sys.stderr)
-        self.log(f"Epoch {self.current_epoch}/{self.total_epochs} completed, sending progress...")
 
-        # Extract metrics from trainer
+def on_pretrain_routine_end(trainer):
+    log("Initialization complete, starting training...")
+
+
+def on_train_start(trainer):
+    """Called when training starts."""
+    global _state
+    _state.running = True
+    _state.total_epochs = trainer.epochs
+    print(f"DEBUG: on_train_start called, epochs={trainer.epochs}", flush=True, file=sys.stderr)
+    log(f"Training started: {_state.total_epochs} epochs")
+    send_event("started", {
+        "total_epochs": _state.total_epochs,
+        "device": str(trainer.device),
+    })
+
+
+def on_train_epoch_start(trainer):
+    """Called at the start of each epoch."""
+    pass
+
+
+def on_train_epoch_end(trainer):
+    """Called after each epoch - main progress callback."""
+    global _state
+    print(f"DEBUG: on_train_epoch_end called, running={_state.running}, epoch={trainer.epoch}", flush=True, file=sys.stderr)
+
+    if not _state.running:
+        print(f"DEBUG: on_train_epoch_end early return - not running", flush=True, file=sys.stderr)
+        return
+
+    # trainer.epoch is 0-indexed
+    _state.current_epoch = trainer.epoch + 1
+
+    epoch_data = {
+        "epoch": _state.current_epoch,
+        "total_epochs": _state.total_epochs,
+    }
+
+    # Extract loss metrics safely
+    try:
+        loss_items = getattr(trainer, 'loss_items', None)
+        if loss_items is not None:
+            if callable(loss_items):
+                loss_items = loss_items()
+            if hasattr(loss_items, 'tolist'):
+                loss_items = loss_items.tolist()
+            if isinstance(loss_items, (list, tuple)) and len(loss_items) >= 3:
+                epoch_data["box_loss"] = float(loss_items[0])
+                epoch_data["cls_loss"] = float(loss_items[1])
+                epoch_data["dfl_loss"] = float(loss_items[2])
+    except Exception as e:
+        print(f"DEBUG: Failed to extract loss: {e}", flush=True, file=sys.stderr)
+
+    # Extract validation metrics
+    try:
         metrics = getattr(trainer, 'metrics', None)
-
-        epoch_data = {
-            "epoch": self.current_epoch,
-            "total_epochs": self.total_epochs,
-        }
-
-        # Extract loss metrics safely - skip if uncertain to avoid serialization errors
-        try:
-            if hasattr(trainer, 'loss_items'):
-                loss_items = trainer.loss_items
-                # If it's callable (method), call it; otherwise use directly
-                if callable(loss_items):
-                    loss_items = loss_items()
-                # Now try to convert and extract
-                if loss_items is not None:
-                    try:
-                        # Try to convert tensor to list
-                        if hasattr(loss_items, 'tolist'):
-                            loss_items = loss_items.tolist()
-                        # Check if it's a sequence we can index
-                        if isinstance(loss_items, (list, tuple)) and len(loss_items) >= 3:
-                            epoch_data["box_loss"] = float(loss_items[0])
-                            epoch_data["cls_loss"] = float(loss_items[1])
-                            epoch_data["dfl_loss"] = float(loss_items[2])
-                            self.log(f"Loss values: box={epoch_data['box_loss']}, cls={epoch_data['cls_loss']}, dfl={epoch_data['dfl_loss']}")
-                    except (TypeError, IndexError, ValueError) as e:
-                        self.log(f"Failed to extract loss items: {e}")
-                        pass  # Skip loss items if conversion fails
-        except Exception as e:
-            self.log(f"Failed to access loss_items: {e}")
-            pass  # Skip entirely if loss_items access fails
-
-        # Extract validation metrics safely
         if metrics is not None:
-            try:
-                epoch_data["precision"] = float(getattr(metrics, 'precision', 0) or 0)
-                epoch_data["recall"] = float(getattr(metrics, 'recall', 0) or 0)
-                epoch_data["mAP50"] = float(getattr(metrics, 'map50', 0) or 0)
-                epoch_data["mAP50-95"] = float(getattr(metrics, 'map50-95', 0) or 0)
-            except Exception:
-                pass
+            epoch_data["precision"] = float(getattr(metrics, 'precision', 0) or 0)
+            epoch_data["recall"] = float(getattr(metrics, 'recall', 0) or 0)
+            epoch_data["mAP50"] = float(getattr(metrics, 'map50', 0) or 0)
+            epoch_data["mAP50-95"] = float(getattr(metrics, 'map50-95', 0) or 0)
+    except Exception as e:
+        print(f"DEBUG: Failed to extract metrics: {e}", flush=True, file=sys.stderr)
 
-        self.current_metrics = epoch_data
-        self.log(f"Sending progress event: {epoch_data}")
-        self.send_event("progress", epoch_data)
+    _state.current_metrics = epoch_data
+    log(f"Epoch {_state.current_epoch}/{_state.total_epochs} completed")
+    send_event("progress", epoch_data)
 
-        # Check if stop requested
-        if self.stop_event.is_set():
-            self.log("Stop requested, halting training...")
-            self.running = False
-            if hasattr(self.model, 'stop'):
-                self.model.stop()
+    # Check if stop requested
+    if _state.stop_event.is_set():
+        log("Stop requested, halting training...")
+        _state.running = False
+        if _state.model and hasattr(_state.model, 'stop'):
+            _state.model.stop()
 
-    def on_val_start(self, trainer):
-        pass
 
-    def on_val_end(self, trainer):
-        pass
+def on_val_start(trainer):
+    pass
 
-    def on_train_end(self, trainer):
-        """Training completed."""
-        self.running = False
-        self.log("Training completed")
 
-        # Find the best model
-        best_model = None
-        save_dir = getattr(trainer, 'save_dir', None)
-        if save_dir:
-            best_path = Path(save_dir) / "weights" / "best.pt"
-            if best_path.exists():
-                best_model = str(best_path)
+def on_val_end(trainer):
+    pass
 
-        final_metrics = self.current_metrics.copy()
-        final_metrics["model_path"] = best_model
 
-        self.send_event("complete", {
-            "success": True,
-            "model_path": best_model,
-            "final_metrics": final_metrics,
-        })
+def on_train_end(trainer):
+    """Called when training ends."""
+    global _state
+    _state.running = False
+    log("Training completed")
 
-    def on_model_save(self, trainer):
-        """Called when model is saved (e.g., best.pt)."""
-        save_dir = getattr(trainer, 'save_dir', None)
-        if save_dir:
-            best_path = Path(save_dir) / "weights" / "best.pt"
-            if best_path.exists():
-                self.log(f"Model saved: {best_path}")
-                self.send_event("model_saved", {"path": str(best_path)})
+    # Find the best model
+    best_model = None
+    save_dir = getattr(trainer, 'save_dir', None)
+    if save_dir:
+        best_path = Path(save_dir) / "weights" / "best.pt"
+        if best_path.exists():
+            best_model = str(best_path)
 
-    def on_error(self, trainer):
-        """Called when an error occurs during training."""
-        self.running = False
-        error_msg = "Unknown error occurred during training"
-        self.send_event("error", error=error_msg)
+    final_metrics = _state.current_metrics.copy()
+    final_metrics["model_path"] = best_model
 
-    def on_exception(self, trainer, exception):
-        """Called when an exception is raised."""
-        self.running = False
-        self.send_event("error", error=str(exception))
+    send_event("complete", {
+        "success": True,
+        "model_path": best_model,
+        "final_metrics": final_metrics,
+    })
+
+
+def on_model_save(trainer):
+    """Called when model is saved."""
+    save_dir = getattr(trainer, 'save_dir', None)
+    if save_dir:
+        best_path = Path(save_dir) / "weights" / "best.pt"
+        if best_path.exists():
+            log(f"Model saved: {best_path}")
+            send_event("model_saved", {"path": str(best_path)})
+
+
+def on_error(trainer):
+    """Called when an error occurs."""
+    global _state
+    _state.running = False
+    error_msg = "Unknown error occurred during training"
+    send_event("error", error=error_msg)
+
+
+def on_exception(trainer, exception):
+    """Called when an exception is raised."""
+    global _state
+    _state.running = False
+    send_event("error", error=str(exception))
+
+
+# Ultralytics official callback map
+CALLBACKS = {
+    'on_pretrain_routine_start': on_pretrain_routine_start,
+    'on_pretrain_routine_end': on_pretrain_routine_end,
+    'on_train_start': on_train_start,
+    'on_train_epoch_start': on_train_epoch_start,
+    'on_train_epoch_end': on_train_epoch_end,
+    'on_val_start': on_val_start,
+    'on_val_end': on_val_end,
+    'on_train_end': on_train_end,
+    'on_model_save': on_model_save,
+    'on_error': on_error,
+    'on_exception': on_exception,
+}
 
 
 def main():
-    trainer = YoloTrainer()
-
-    # Register callbacks
-    callbacks = {
-        'on_pretrain_routine_start': trainer.on_pretrain_routine_start,
-        'on_pretrain_routine_end': trainer.on_pretrain_routine_end,
-        'on_train_start': trainer.on_train_start,
-        'on_train_epoch_start': trainer.on_train_epoch_start,
-        'on_train_epoch_end': trainer.on_train_epoch_end,
-        'on_val_start': trainer.on_val_start,
-        'on_val_end': trainer.on_val_end,
-        'on_train_end': trainer.on_train_end,
-        'on_model_save': trainer.on_model_save,
-        'on_error': trainer.on_error,
-        'on_exception': trainer.on_exception,
-    }
+    # Reset state
+    global _state
+    _state = TrainerState()
 
     def handle_command(cmd):
         """Handle a command from stdin."""
+        global _state
         cmd_type = cmd.get("type")
 
         if cmd_type == "start":
             config = cmd.get("config", {})
-            trainer.log(f"Received start command: epochs={config.get('epochs')}")
+            log(f"Received start command: epochs={config.get('epochs')}")
 
             # Validate project path
             project_path = config.get("project_path")
             if not project_path:
-                trainer.send_event("error", error="project_path is required")
+                send_event("error", error="project_path is required")
                 return
 
             data_yaml = Path(project_path) / "data.yaml"
             if not data_yaml.exists():
-                trainer.send_event("error", error=f"data.yaml not found at {data_yaml}")
+                send_event("error", error=f"data.yaml not found at {data_yaml}")
                 return
 
             base_model = config.get("base_model", "yolo11n.pt")
 
             # Load model
             try:
-                trainer.model = YOLO(base_model)
-                trainer.log(f"Model loaded: {base_model}")
+                _state.model = YOLO(base_model)
+                log(f"Model loaded: {base_model}")
             except Exception as e:
-                trainer.send_event("error", error=f"Failed to load model: {e}")
+                send_event("error", error=f"Failed to load model: {e}")
                 return
 
             # Auto-detect device
             device = config.get("device", 0)
             try:
                 import torch
-                if not torch.cuda.is_available():
-                    trainer.log("CUDA not available, using CPU")
+                # device_id: -1 = CPU, 0+ = GPU device number
+                if isinstance(device, int) and device < 0:
+                    device = "cpu"
+                elif isinstance(device, int) and device >= 0:
+                    device = str(device)  # Convert to string "0", "1", etc.
+                    if not torch.cuda.is_available():
+                        log("CUDA not available, using CPU")
+                        device = "cpu"
+                elif device == "cpu" or not torch.cuda.is_available():
+                    log("CUDA not available, using CPU")
                     device = "cpu"
             except ImportError:
                 device = "cpu"
 
-            # Prepare training arguments (NO callbacks here - register them on model instead)
+            # Prepare training arguments — include ALL hyperparameters
             train_args = {
                 "data": str(data_yaml),
                 "epochs": config.get("epochs", 50),
@@ -263,97 +283,123 @@ def main():
                 "project": project_path,
                 "name": "train",
                 "exist_ok": True,
+                # Hyperparameters
+                "lr0": config.get("lr0", 0.01),
+                "lrf": config.get("lrf", 0.01),
+                "momentum": config.get("momentum", 0.937),
+                "weight_decay": config.get("weight_decay", 0.0005),
+                # Warmup
+                "warmup_epochs": config.get("warmup_epochs", 3.0),
+                "warmup_bias_lr": config.get("warmup_bias_lr", 0.1),
+                "warmup_momentum": config.get("warmup_momentum", 0.8),
+                # Augmentation
+                "hsv_h": config.get("hsv_h", 0.015),
+                "hsv_s": config.get("hsv_s", 0.7),
+                "hsv_v": config.get("hsv_v", 0.4),
+                "translate": config.get("translate", 0.1),
+                "scale": config.get("scale", 0.5),
+                "shear": config.get("shear", 0.0),
+                "perspective": config.get("perspective", 0.0),
+                "flipud": config.get("flipud", 0.0),
+                "fliplr": config.get("fliplr", 0.5),
+                "mosaic": config.get("mosaic", 1.0),
+                "mixup": config.get("mixup", 0.0),
+                "copy_paste": config.get("copy_paste", 0.0),
+                # Training options
+                "rect": config.get("rect", False),
+                "cos_lr": config.get("cos_lr", False),
+                "single_cls": config.get("single_cls", False),
+                "amp": config.get("amp", True),
+                "save_period": config.get("save_period", -1),
+                "cache": config.get("cache", False),
             }
 
             # Send started event
-            trainer.send_event("started", {"config": train_args})
+            send_event("started", {"config": train_args})
 
             # Run training in background thread
             def training_worker():
+                global _state
                 import traceback
-                import sys
                 try:
-                    trainer.running = True
-                    trainer.stop_event.clear()
+                    _state.running = True
+                    _state.stop_event.clear()
                     print("DEBUG: Training worker starting", flush=True, file=sys.stderr)
 
-                    # Register callbacks on the model BEFORE training
-                    for name, callback in callbacks.items():
-                        trainer.model.add_callback(name, callback)
+                    # Register callbacks on the model (Ultralytics official pattern)
+                    for name, callback in CALLBACKS.items():
+                        _state.model.add_callback(name, callback)
                     print("DEBUG: Callbacks registered on model", flush=True, file=sys.stderr)
 
-                    # Check model exists - use base_model from closure
+                    # Print debug info
                     model_path = Path(base_model)
                     print(f"DEBUG: model_path={model_path}", flush=True, file=sys.stderr)
                     print(f"DEBUG: model exists={model_path.exists()}", flush=True, file=sys.stderr)
-
-                    # Check data file exists
                     print(f"DEBUG: data_yaml={data_yaml}", flush=True, file=sys.stderr)
                     print(f"DEBUG: data_yaml exists={data_yaml.exists()}", flush=True, file=sys.stderr)
+                    print(f"DEBUG: train_args={train_args}", flush=True, file=sys.stderr)
 
-                    # Print train_args keys
-                    print(f"DEBUG: train_args keys={list(train_args.keys())}", flush=True, file=sys.stderr)
-                    print(f"DEBUG: train_args epochs={train_args.get('epochs')}", flush=True, file=sys.stderr)
-                    print(f"DEBUG: train_args data={train_args.get('data')}", flush=True, file=sys.stderr)
-
-                    trainer.log("About to call model.train()...")
+                    log("About to call model.train()...")
                     print("DEBUG: Calling model.train()", flush=True, file=sys.stderr)
-                    results = trainer.model.train(**train_args)
+
+                    # Train the model
+                    results = _state.model.train(**train_args)
                     print("DEBUG: model.train() returned", flush=True, file=sys.stderr)
-                    trainer.log(f"Training finished: {results}")
+                    log(f"Training finished: {results}")
+
                 except Exception as e:
-                    trainer.running = False
+                    _state.running = False
                     tb = traceback.format_exc()
                     print(f"DEBUG: Exception in training_worker: {e}", flush=True, file=sys.stderr)
                     print(f"DEBUG: Traceback: {tb}", flush=True, file=sys.stderr)
-                    trainer.log(f"Training error: {e}")
-                    trainer.log(f"Traceback: {tb}")
-                    trainer.send_event("error", error=f"{e}\n{tb}")
+                    log(f"Training error: {e}")
+                    send_event("error", error=f"{e}\n{tb}")
 
             thread = threading.Thread(target=training_worker, daemon=True)
             thread.start()
 
         elif cmd_type == "stop":
             print("DEBUG: Received stop command", flush=True, file=sys.stderr)
-            trainer.log("Received stop command")
-            trainer.stop_event.set()
-            if trainer.running and trainer.model:
+            log("Received stop command")
+            _state.stop_event.set()
+            if _state.running and _state.model:
                 try:
-                    trainer.model.stop()
+                    _state.model.stop()
                 except Exception:
                     pass
-            trainer.running = False
-            trainer.send_event("stopped")
+            _state.running = False
+            send_event("stopped")
             print("DEBUG: Stop command processed, exiting", flush=True, file=sys.stderr)
             sys.exit(0)
 
         elif cmd_type == "quit":
-            trainer.log("Received quit command")
-            trainer.stop_event.set()
-            trainer.running = False
-            trainer.send_event("quit")
+            log("Received quit command")
+            _state.stop_event.set()
+            _state.running = False
+            send_event("quit")
             sys.exit(0)
 
         elif cmd_type == "status":
             status = {
-                "running": trainer.running,
-                "epoch": trainer.current_epoch,
-                "total_epochs": trainer.total_epochs,
-                "metrics": trainer.current_metrics,
+                "running": _state.running,
+                "epoch": _state.current_epoch,
+                "total_epochs": _state.total_epochs,
+                "metrics": _state.current_metrics,
             }
-            trainer.send_event("status", status)
+            send_event("status", status)
 
         else:
-            trainer.send_event("error", error=f"Unknown command type: {cmd_type}")
+            send_event("error", error=f"Unknown command type: {cmd_type}")
 
     # Main loop - read commands from stdin
-    trainer.log("YOLO training server started")
+    log("YOLO training server started")
 
     # Set signal handlers for graceful shutdown
     def signal_handler(sig, frame):
-        trainer.log(f"Received signal {sig}")
-        trainer.stop_event.set()
-        trainer.running = False
+        global _state
+        log(f"Received signal {sig}")
+        _state.stop_event.set()
+        _state.running = False
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -368,9 +414,9 @@ def main():
             cmd = json.loads(line)
             handle_command(cmd)
         except json.JSONDecodeError as e:
-            trainer.send_event("error", error=f"Invalid JSON: {e}")
+            send_event("error", error=f"Invalid JSON: {e}")
         except Exception as e:
-            trainer.send_event("error", error=str(e))
+            send_event("error", error=str(e))
 
 
 if __name__ == "__main__":

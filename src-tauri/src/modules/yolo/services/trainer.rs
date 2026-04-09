@@ -35,15 +35,33 @@ impl TrainerService {
 
     /// Find and start the Python sidecar process
     async fn start_sidecar(&self) -> Result<Child, String> {
-        let script_paths = [
-            "scripts/yolo_server.py",
-            "src-tauri/scripts/yolo_server.py",
+        // Search paths: try multiple locations to find yolo_server.py
+        let search_paths = [
+            // Relative to cwd (project root when running `npm run tauri dev`)
+            std::path::PathBuf::from("src-tauri/scripts/yolo_server.py"),
+            std::path::PathBuf::from("scripts/yolo_server.py"),
+            // Relative to the binary's parent directory (src-tauri/)
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.join("scripts/yolo_server.py"))),
+            // Relative to CARGO_MANIFEST_DIR (src-tauri/)
+            std::path::PathBuf::from(
+                std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default(),
+            )
+            .join("scripts/yolo_server.py"),
+            // Standalone: try executable's grandparent (project root)
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("src-tauri/scripts/yolo_server.py"))),
         ];
 
-        let script_path = script_paths
+        let script_path = search_paths
             .iter()
-            .find(|p| std::path::Path::new(p).exists())
-            .ok_or_else(|| "Python sidecar script not found".to_string())?;
+            .flatten()
+            .find(|p| p.exists())
+            .ok_or_else(|| "Python sidecar script not found in any location".to_string())?;
+
+        eprintln!("[Trainer] Using script path: {:?}", script_path);
 
         let python_cmd = if cfg!(windows) { "python" } else { "python3" };
 
@@ -51,7 +69,7 @@ impl TrainerService {
             .arg(script_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())  // Print Python stderr to console
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("Failed to start Python sidecar: {}", e))?;
@@ -90,7 +108,7 @@ impl TrainerService {
             .take()
             .ok_or_else(|| "Failed to take stdout".to_string())?;
 
-        // Build config
+        // Build config — pass ALL hyperparameters to Python
         let config = serde_json::json!({
             "project_path": project_path,
             "base_model": request.base_model,
@@ -100,6 +118,35 @@ impl TrainerService {
             "device": request.device_id,
             "workers": request.workers,
             "optimizer": request.optimizer,
+            // Hyperparameters (lr0=initial LR, lrf=final LR, momentum, weight_decay)
+            "lr0": request.lr0,
+            "lrf": request.lrf,
+            "momentum": request.momentum,
+            "weight_decay": request.weight_decay,
+            // Warmup
+            "warmup_epochs": request.warmup_epochs,
+            "warmup_bias_lr": request.warmup_bias_lr,
+            "warmup_momentum": request.warmup_momentum,
+            // Augmentation
+            "hsv_h": request.hsv_h,
+            "hsv_s": request.hsv_s,
+            "hsv_v": request.hsv_v,
+            "translate": request.translate,
+            "scale": request.scale,
+            "shear": request.shear,
+            "perspective": request.perspective,
+            "flipud": request.flipud,
+            "fliplr": request.fliplr,
+            "mosaic": request.mosaic,
+            "mixup": request.mixup,
+            "copy_paste": request.copy_paste,
+            // Training options
+            "rect": request.rect,
+            "cos_lr": request.cos_lr,
+            "single_cls": request.single_cls,
+            "amp": request.amp,
+            "save_period": request.save_period,
+            "cache": request.cache,
         });
 
         // Send start command - keep stdin alive by wrapping in BufWriter but not dropping
@@ -225,9 +272,11 @@ impl TrainerService {
                                         "complete" => {
                                             if let Some(h) = processes.write().await.get_mut(&process_id) {
                                                 h.status.running = false;
+                                                h.status.progress_percent = 100.0;
                                                 if let Some(data) = resp.get("data") {
-                                                    if let Some(_final_metrics) = data.get("final_metrics") {
-                                                        h.status.progress_percent = 100.0;
+                                                    // Extract model_path from complete event if available
+                                                    if let Some(model_path) = data.get("model_path").and_then(|v| v.as_str()) {
+                                                        h.model_path = Some(model_path.to_string());
                                                     }
                                                 }
                                             }
@@ -307,6 +356,8 @@ impl TrainerService {
             if let Some(tx) = handle.stop_tx.take() {
                 let _ = tx.send(()).await;
             }
+            // 真正 kill Python 进程
+            let _ = handle.child.kill().await;
             handle.status.running = false;
             handle.status.paused = false;
         }

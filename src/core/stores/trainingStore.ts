@@ -291,7 +291,10 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
 
   stopTraining: async () => {
     try {
-      await apiStopTraining();
+      const { currentTrainingId } = get();
+      if (currentTrainingId) {
+        await apiStopTraining(currentTrainingId);
+      }
       set({
         isTraining: false,
         isPaused: false,
@@ -304,8 +307,11 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
 
   pauseTraining: async () => {
     try {
-      await apiPauseTraining();
-      set({ isPaused: true });
+      const { currentTrainingId } = get();
+      if (currentTrainingId) {
+        await apiPauseTraining(currentTrainingId);
+        set({ isPaused: true });
+      }
     } catch (error) {
       console.error('Failed to pause training:', error);
     }
@@ -313,8 +319,11 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
 
   resumeTraining: async () => {
     try {
-      await apiResumeTraining();
-      set({ isPaused: false });
+      const { currentTrainingId } = get();
+      if (currentTrainingId) {
+        await apiResumeTraining(currentTrainingId);
+        set({ isPaused: false });
+      }
     } catch (error) {
       console.error('Failed to resume training:', error);
     }

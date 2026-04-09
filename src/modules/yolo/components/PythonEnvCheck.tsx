@@ -42,6 +42,7 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
 
   useEffect(() => {
     loadInstructions();
+    checkEnvironment();
   }, []);
 
   const checkEnvironment = async () => {
