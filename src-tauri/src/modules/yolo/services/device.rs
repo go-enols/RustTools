@@ -6,7 +6,7 @@ use std::process::Command;
 pub struct DeviceInfo {
     pub id: i32,
     pub name: String,
-    pub #[serde(rename = "type")]
+    #[serde(rename = "type")]
     pub device_type: String, // "GPU" or "CPU"
     pub memory_total: u64,
     pub memory_used: u64,
