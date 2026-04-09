@@ -35,9 +35,9 @@ export async function startVideoInference(
 /**
  * Stop video inference
  */
-export async function stopVideoInference(): Promise<ApiResponse<void>> {
+export async function stopVideoInference(sessionId?: string): Promise<ApiResponse<void>> {
   try {
-    return await invoke<ApiResponse<void>>('video_inference_stop');
+    return await invoke<ApiResponse<void>>('video_inference_stop', { sessionId });
   } catch (error) {
     console.error('[API] stopVideoInference error:', error);
     return { success: false, error: String(error) };

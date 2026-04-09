@@ -77,3 +77,28 @@ pub struct TrainedModelInfo {
     pub model_path: String,
     pub created_at: String,
 }
+
+/// Bounding box in XYWH format (normalized, for frontend)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotationBox {
+    pub id: String,
+    pub class_id: usize,
+    pub class_name: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub confidence: f32,
+}
+
+/// Video inference configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoInferenceConfig {
+    pub video_path: String,
+    pub model_path: String,
+    pub confidence: f32,
+    pub iou_threshold: f32,
+    pub device: String,
+    pub output_dir: String,
+    pub frame_interval: u32,
+}

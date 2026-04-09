@@ -436,6 +436,7 @@ pub async fn save_annotation(
 
 pub mod env;
 pub mod train;
+pub mod video;
 
 /// Import an existing YOLO dataset and create a project
 #[tauri::command]

@@ -2,7 +2,7 @@ pub mod core;
 pub mod modules;
 
 use core::commands::watcher::WatcherState;
-use modules::yolo::services::TrainerService;
+use modules::yolo::services::{TrainerService, VideoService};
 use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -13,6 +13,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(WatcherState::default())
         .manage(Arc::new(TrainerService::new()))
+        .manage(Arc::new(VideoService::new()))
         .invoke_handler(tauri::generate_handler![
             modules::yolo::commands::project_create,
             modules::yolo::commands::project_open,
@@ -44,6 +45,13 @@ pub fn run() {
             // File watcher
             core::commands::start_watch,
             core::commands::stop_watch,
+            // Video commands
+            modules::yolo::commands::video::video_load,
+            modules::yolo::commands::video::video_inference_start,
+            modules::yolo::commands::video::video_inference_stop,
+            modules::yolo::commands::video::video_capture_screenshot,
+            modules::yolo::commands::video::video_extract_frames,
+            modules::yolo::commands::video::video_inference_results,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -128,14 +128,13 @@ export interface DeviceInfo {
 
 // Video Types
 export interface VideoInferenceConfig {
-  model_path: string;
   video_path: string;
+  model_path: string;
   confidence: number;
   iou_threshold: number;
-  enable_gpu: boolean;
-  screenshot_mode: 'time' | 'frame';
-  screenshot_interval: number;
-  enable_screenshot: boolean;
+  device: string;         // "0" = GPU 0, "cpu" = CPU
+  output_dir: string;     // Directory for inference output
+  frame_interval: number; // Process every N frames
 }
 
 // Annotation Types
