@@ -152,11 +152,11 @@ impl VideoService {
         let python_args = vec![
             config.video_path.clone(),
             config.model_path.clone(),
-            "--conf", &config.confidence.to_string(),
-            "--iou", &config.iou_threshold.to_string(),
-            "--device", &config.device,
+            "--conf", config.confidence.to_string().as_str(),
+            "--iou", config.iou_threshold.to_string().as_str(),
+            "--device", config.device.as_str(),
             "--output-json", output_json.to_str().unwrap_or(""),
-            "--frame-interval", &config.frame_interval.to_string(),
+            "--frame-interval", config.frame_interval.to_string().as_str(),
         ];
 
         // Run Python inference
