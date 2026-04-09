@@ -49,7 +49,6 @@ impl TrainerService {
 
         let script_path = search_paths
             .iter()
-            .flatten()
             .find(|p| p.exists())
             .ok_or_else(|| "Python sidecar script not found in any location".to_string())?;
 

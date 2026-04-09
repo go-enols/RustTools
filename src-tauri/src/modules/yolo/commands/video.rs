@@ -54,6 +54,7 @@ pub async fn video_inference_start(
         .as_millis());
 
     let session_id_clone = session_id.clone();
+    let session_id_clone2 = session_id.clone();
     let state_arc = Arc::clone(&state);
 
     // Spawn inference in background
@@ -72,14 +73,14 @@ pub async fn video_inference_start(
         match state_arc.run_inference(&session_id, &config, callback).await {
             Ok(results) => {
                 let _ = app_clone.emit("video-inference-complete", serde_json::json!({
-                    "session_id": session_id,
+                    "session_id": session_id_clone2,
                     "success": true,
                     "frames": results.len(),
                 }));
             }
             Err(e) => {
                 let _ = app_clone.emit("video-inference-complete", serde_json::json!({
-                    "session_id": session_id,
+                    "session_id": session_id_clone2,
                     "success": false,
                     "error": e,
                 }));
