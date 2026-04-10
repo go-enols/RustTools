@@ -198,6 +198,7 @@ export default function TrainingPage() {
     // First check if model exists
     const checkResult = await checkModel(modelName);
 
+    let modelPath = modelName;
     if (checkResult.success && checkResult.data) {
       if (!checkResult.data.exists) {
         // Model doesn't exist, need to download
@@ -214,13 +215,20 @@ export default function TrainingPage() {
         }
 
         setShowDownloadModal(false);
+        // Use the downloaded model path
+        if (downloadResult.data?.path) {
+          modelPath = downloadResult.data.path;
+        }
+      } else if (checkResult.data.path) {
+        // Model exists, use the full path
+        modelPath = checkResult.data.path;
       }
     } else {
       console.warn('检查模型失败，将尝试直接开始训练:', checkResult.error);
     }
 
-    // Start training
-    startTraining(config);
+    // Start training with the resolved model path
+    startTraining({ ...config, base_model: modelPath });
   };
 
   const handleManualDownload = () => {
