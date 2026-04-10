@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  FolderOpen,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTrainingStore, TrainingConfig } from '../../../core/stores/trainingStore';
@@ -14,6 +15,7 @@ import {
   checkModel,
   downloadModel,
 } from '../../../core/api';
+import { DialogResult } from '../../../core/api/types';
 import { listen } from '@tauri-apps/api/event';
 import { DownloadModal } from '../../../shared/components/ui/Modal';
 
@@ -195,6 +197,12 @@ export default function TrainingPage() {
 
     const modelName = config.base_model;
 
+    // For custom models, skip check and use directly
+    if (modelName.startsWith('custom:')) {
+      startTraining(config);
+      return;
+    }
+
     // First check if model exists
     const checkResult = await checkModel(modelName);
 
@@ -339,6 +347,35 @@ export default function TrainingPage() {
                   </optgroup>
                 </select>
               </div>
+              {config.base_model.startsWith('custom:') && (
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="输入自定义模型路径，如 C:\Users\xxx\model.pt"
+                  value={config.base_model.replace('custom:', '')}
+                  onChange={(e) => setConfig({ ...config, base_model: `custom:${e.target.value}` })}
+                  style={{ marginLeft: 8, minWidth: 300 }}
+                />
+              )}
+              <button
+                className="btn btn-secondary"
+                onClick={async () => {
+                  try {
+                    const result = await invoke<DialogResult>('open_file_dialog', {
+                      title: '选择模型文件',
+                      filters: [{ name: 'YOLO Model', extensions: ['pt', 'pth'] }],
+                    });
+                    if (!result.canceled && result.paths && result.paths.length > 0) {
+                      setConfig({ ...config, base_model: `custom:${result.paths[0]}` });
+                    }
+                  } catch (e) {
+                    console.error('Failed to open file dialog:', e);
+                  }
+                }}
+                style={{ marginLeft: 8 }}
+              >
+                <FolderOpen size={14} />
+              </button>
               <div>
                 <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>训练轮次</span>
                 <input
@@ -585,26 +622,6 @@ export default function TrainingPage() {
                     <option value={-1}>CPU (CUDA 不可用)</option>
                   )}
                 </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Workers</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.workers === 0 ? '' : config.workers}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, workers: 0 });
-                    } else {
-                      const num = parseInt(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, workers: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.workers === 0) setConfig({ ...config, workers: 8 });
-                  }}
-                  style={{ marginTop: 4 }}
-                />
               </div>
             </div>
           </div>

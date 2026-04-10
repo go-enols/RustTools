@@ -702,11 +702,15 @@ impl TrainerService {
 
         let download_urls = [
             format!(
-                "https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
+                "https://mirror.ghproxy.com/https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
                 model_name
             ),
             format!(
-                "https://github.com/ultralytics/assets/releases/download/v8.3.0/{}",
+                "https://hf-mirror.com/ultralytics/assets/releases/download/v0.0.0/{}",
+                model_name
+            ),
+            format!(
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
                 model_name
             ),
         ];
