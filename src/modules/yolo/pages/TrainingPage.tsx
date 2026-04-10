@@ -454,8 +454,8 @@ export default function TrainingPage() {
                   <div className="progress-bar" style={{ height: 8, background: 'var(--border-default)' }}>
                     <div style={{
                       height: '100%',
-                      width: `${batchProgress.totalBatches > 0 ? (batchProgress.batch / batchProgress.totalBatches) * 100 : 100}%`,
-                      background: 'var(--accent-secondary, #10b981)',
+                      width: `${batchProgress.totalBatches > 0 ? Math.min((batchProgress.batch / batchProgress.totalBatches) * 100, 100) : 0}%`,
+                      background: batchProgress.totalBatches > 0 ? 'var(--accent-secondary, #10b981)' : 'var(--border-default)',
                       borderRadius: 'var(--radius-full)',
                       transition: 'width 0.3s'
                     }} />

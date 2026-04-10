@@ -224,7 +224,14 @@ def _on_train_start(trainer):
     _state.running = True
     _state.total_epochs = trainer.epochs
     _state.total_batches = getattr(trainer, 'num_train_batches', 0)
-    print(f"DEBUG: on_train_start called, epochs={trainer.epochs}", flush=True, file=sys.stderr)
+    if _state.total_batches == 0:
+        try:
+            train_loader = getattr(trainer, 'train_loader', None)
+            if train_loader is not None:
+                _state.total_batches = len(train_loader)
+        except Exception:
+            pass
+    print(f"DEBUG: on_train_start called, epochs={trainer.epochs}, total_batches={_state.total_batches}", flush=True, file=sys.stderr)
     log(f"Training started: {_state.total_epochs} epochs")
 
     cuda_available = False
@@ -249,7 +256,13 @@ def _on_train_epoch_start(trainer):
     """Called at the start of each epoch."""
     global _state
     _state.batch_count = 0
-    _state.total_batches = getattr(trainer, 'num_train_batches', 0)
+    if _state.total_batches == 0:
+        try:
+            train_loader = getattr(trainer, 'train_loader', None)
+            if train_loader is not None:
+                _state.total_batches = len(train_loader)
+        except Exception:
+            pass
     log(f"Epoch {trainer.epoch + 1}/{_state.total_epochs} starting...")
 
 
