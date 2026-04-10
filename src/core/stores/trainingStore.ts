@@ -228,6 +228,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
           learning_rate: number;
         };
       }>('training-progress', (event) => {
+        console.log('[TrainingStore] training-progress event received:', event.payload);
         const { metrics: m } = event.payload;
         const metrics: TrainingMetrics = {
           epoch: event.payload.epoch,
@@ -260,6 +261,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
         dfl_loss: number;
         learning_rate: number;
       }>('training-batch-progress', (event) => {
+        console.log('[TrainingStore] training-batch-progress event received:', event.payload);
         const p = event.payload;
         set((state) => ({
           currentEpoch: p.epoch,
@@ -282,6 +284,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
         model_path?: string;
         error?: string;
       }>('training-complete', (event) => {
+        console.log('[TrainingStore] training-complete event received:', event.payload);
         unlistenProgress();
         unlistenBatchProgress();
         unlistenComplete();
