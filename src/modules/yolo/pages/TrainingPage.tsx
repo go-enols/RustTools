@@ -394,18 +394,26 @@ export default function TrainingPage() {
                 <div className="progress-fill" style={{ width: `${totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0}%` }} />
               </div>
 
-              {batchProgress && batchProgress.totalBatches > 0 && (
+              {batchProgress && batchProgress.batch > 0 && (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)', marginTop: 'var(--spacing-md)' }}>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-                      当前 Epoch 进度 Batch {batchProgress.batch} / {batchProgress.totalBatches}
+                      当前 Epoch 进度 Batch {batchProgress.batch}{batchProgress.totalBatches > 0 ? ` / ${batchProgress.totalBatches}` : ''}
                     </span>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {batchProgress.totalBatches > 0 ? ((batchProgress.batch / batchProgress.totalBatches) * 100).toFixed(1) : 0}%
+                      {batchProgress.totalBatches > 0
+                        ? `${((batchProgress.batch / batchProgress.totalBatches) * 100).toFixed(1)}%`
+                        : `${batchProgress.batch} batches`}
                     </span>
                   </div>
                   <div className="progress-bar" style={{ height: 8, background: 'var(--border-default)' }}>
-                    <div style={{ height: '100%', width: `${batchProgress.totalBatches > 0 ? (batchProgress.batch / batchProgress.totalBatches) * 100 : 0}%`, background: 'var(--accent-secondary, #10b981)', borderRadius: 'var(--radius-full)', transition: 'width 0.3s' }} />
+                    <div style={{
+                      height: '100%',
+                      width: `${batchProgress.totalBatches > 0 ? (batchProgress.batch / batchProgress.totalBatches) * 100 : 100}%`,
+                      background: 'var(--accent-secondary, #10b981)',
+                      borderRadius: 'var(--radius-full)',
+                      transition: 'width 0.3s'
+                    }} />
                   </div>
                 </>
               )}
