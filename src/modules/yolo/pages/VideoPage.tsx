@@ -570,7 +570,7 @@ export default function VideoPage() {
               <div className="panel-section-title">视频信息</div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div>分辨率: {videoMeta.width} × {videoMeta.height}</div>
-                <div>帧率: {videoMeta.fps.toFixed(1f32)} fps</div>
+                <div>帧率: {videoMeta.fps.toFixed(1)} fps</div>
                 <div>时长: {formatTime(videoMeta.duration)}</div>
                 <div>总帧数: {videoMeta.frames}</div>
               </div>

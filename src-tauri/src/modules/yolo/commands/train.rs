@@ -1,5 +1,5 @@
 use crate::modules::yolo::models::training::{TrainingMetrics, TrainingRequest};
-use crate::modules::yolo::services::TrainerService;
+use crate::modules::yolo::services::{TrainerService, TrainingEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -11,6 +11,26 @@ pub struct TrainingProgressEvent {
     pub total_epochs: u32,
     pub progress_percent: f32,
     pub metrics: TrainingMetrics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingBatchProgressEvent {
+    pub training_id: String,
+    pub epoch: u32,
+    pub total_epochs: u32,
+    pub batch: u32,
+    pub total_batches: u32,
+    pub box_loss: f32,
+    pub cls_loss: f32,
+    pub dfl_loss: f32,
+    pub learning_rate: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingStartedEvent {
+    pub training_id: String,
+    pub cuda_available: bool,
+    pub cuda_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +110,7 @@ pub async fn training_start(
     project_path: String,
     config: TrainingConfig,
 ) -> Result<CommandResponse<String>, String> {
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     let request = TrainingRequest {
         base_model: config.base_model,
         epochs: config.epochs,
@@ -126,91 +147,93 @@ pub async fn training_start(
         cache: config.cache,
     };
 
-    match state.start_training(project_path, request).await {
+    match state.start_training(project_path, request, event_tx).await {
         Ok(training_id) => {
-            // Spawn progress event emitter
             let app_clone = app.clone();
-            let training_id_clone = training_id.clone();
-            let state_inner = Arc::clone(&state);
 
             tokio::spawn(async move {
-                let mut last_epoch = 0u32;
-
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                    let is_running = state_inner.is_training(&training_id_clone).await;
-                    let error = state_inner.get_error(&training_id_clone).await;
-                    let status = state_inner.get_status(&training_id_clone).await;
-
-                    if status.is_none() {
-                        eprintln!("[Trainer] Status is None for training_id={}, is_running={}", training_id_clone, is_running);
-                    }
-
-                    // Only emit progress if epoch has changed (new data from Python)
-                    if let Some(s) = &status {
-                        if s.epoch > last_epoch {
-                            eprintln!("[Trainer] Emitting progress: epoch={}, total={}, progress={}%, metrics.box_loss={}",
-                                s.epoch, s.total_epochs, s.progress_percent, s.metrics.train_box_loss);
+                while let Some(event) = event_rx.recv().await {
+                    match event {
+                        TrainingEvent::Started { training_id, total_epochs, cuda_available, cuda_version } => {
+                            eprintln!(
+                                "[Trainer] Training started: id={}, total_epochs={}",
+                                training_id, total_epochs
+                            );
+                            let event = TrainingStartedEvent {
+                                training_id,
+                                cuda_available,
+                                cuda_version,
+                            };
+                            let _ = app_clone.emit("training-started", event);
+                        }
+                        TrainingEvent::BatchProgress {
+                            training_id,
+                            epoch,
+                            total_epochs,
+                            batch,
+                            total_batches,
+                            box_loss,
+                            cls_loss,
+                            dfl_loss,
+                            learning_rate,
+                        } => {
+                            let event = TrainingBatchProgressEvent {
+                                training_id,
+                                epoch,
+                                total_epochs,
+                                batch,
+                                total_batches,
+                                box_loss,
+                                cls_loss,
+                                dfl_loss,
+                                learning_rate,
+                            };
+                            let _ = app_clone.emit("training-batch-progress", event);
+                        }
+                        TrainingEvent::Progress { training_id, status } => {
                             let event = TrainingProgressEvent {
-                                training_id: training_id_clone.clone(),
-                                epoch: s.epoch,
-                                total_epochs: s.total_epochs,
-                                progress_percent: s.progress_percent,
-                                metrics: s.metrics.clone(),
+                                training_id,
+                                epoch: status.epoch,
+                                total_epochs: status.total_epochs,
+                                progress_percent: status.progress_percent,
+                                metrics: status.metrics,
                             };
                             let _ = app_clone.emit("training-progress", event);
-                            eprintln!("[Trainer] Progress event emitted successfully");
-                            last_epoch = s.epoch;  // Update after emitting
-
-                            // Check if training is complete (epoch reached total)
-                            if s.epoch >= s.total_epochs && s.total_epochs > 0 && s.epoch > 0 {
-                                eprintln!("[Trainer] Training complete: epoch {} >= total {}", s.epoch, s.total_epochs);
-                                let model_path = state_inner.get_model_path(&training_id_clone).await;
-                                let event = TrainingCompleteEvent {
-                                    training_id: training_id_clone.clone(),
-                                    success: s.error.is_none(),
-                                    model_path: if s.error.is_none() { model_path } else { None },
-                                    error: s.error.clone(),
-                                };
-                                let _ = app_clone.emit("training-complete", event);
-                                break;
-                            }
+                        }
+                        TrainingEvent::Complete {
+                            training_id,
+                            model_path,
+                        } => {
+                            let event = TrainingCompleteEvent {
+                                training_id,
+                                success: true,
+                                model_path,
+                                error: None,
+                            };
+                            let _ = app_clone.emit("training-complete", event);
+                            break;
+                        }
+                        TrainingEvent::Error { training_id, error } => {
+                            let event = TrainingCompleteEvent {
+                                training_id,
+                                success: false,
+                                model_path: None,
+                                error: Some(error),
+                            };
+                            let _ = app_clone.emit("training-complete", event);
+                            break;
+                        }
+                        TrainingEvent::Stopped { training_id } => {
+                            let event = TrainingCompleteEvent {
+                                training_id,
+                                success: false,
+                                model_path: None,
+                                error: Some("训练已停止".to_string()),
+                            };
+                            let _ = app_clone.emit("training-complete", event);
+                            break;
                         }
                     }
-
-                    // Check if process is still running
-                    if !is_running {
-                        eprintln!("[Trainer] Process not running (is_running=false), checking completion status");
-                        // Process ended - check if we have valid metrics
-                        if let Some(s) = &status {
-                            eprintln!("[Trainer] Status check: epoch={}, total_epochs={}, error={:?}", s.epoch, s.total_epochs, s.error);
-                            if s.epoch > 0 && s.total_epochs > 0 {
-                                // We have some training data, consider it complete
-                                let model_path = state_inner.get_model_path(&training_id_clone).await;
-                                let event = TrainingCompleteEvent {
-                                    training_id: training_id_clone.clone(),
-                                    success: s.error.is_none(),
-                                    model_path: if s.error.is_none() { model_path } else { None },
-                                    error: s.error.clone(),
-                                };
-                                eprintln!("[Trainer] Sending training-complete event (with data): success={}", s.error.is_none());
-                                let _ = app_clone.emit("training-complete", event);
-                                break;
-                            }
-                        }
-                        // No training data, emit error
-                        eprintln!("[Trainer] Sending training-complete event (error case): error={:?}", error);
-                        let event = TrainingCompleteEvent {
-                            training_id: training_id_clone.clone(),
-                            success: false,
-                            model_path: None,
-                            error: Some(error.unwrap_or_else(|| "Training process ended unexpectedly".to_string())),
-                        };
-                        let _ = app_clone.emit("training-complete", event);
-                        break;
-                    }
-
                 }
             });
 

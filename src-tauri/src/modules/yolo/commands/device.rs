@@ -52,7 +52,7 @@ pub fn device_stats(device_id: i32) -> CommandResponse<DeviceStats> {
 
 /// Set the default training device (persisted in settings)
 #[tauri::command]
-pub fn device_set_default(device_id: i32) -> CommandResponse<()> {
+pub fn device_set_default(_device_id: i32) -> CommandResponse<()> {
     // For now, just acknowledge - actual persistence is handled by settings system
     CommandResponse::ok(())
 }

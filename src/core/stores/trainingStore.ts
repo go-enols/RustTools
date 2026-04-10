@@ -26,6 +26,15 @@ export interface TrainedModel {
   createdAt: Date;
 }
 
+export interface BatchProgress {
+  batch: number;
+  totalBatches: number;
+  boxLoss: number;
+  clsLoss: number;
+  dflLoss: number;
+  learningRate: number;
+}
+
 export interface TrainingMetrics {
   epoch: number;
   trainBoxLoss: number;
@@ -101,6 +110,7 @@ interface TrainingState {
   baseModels: BaseModel[];
   currentTrainingId: string | null;
   error: string | null;
+  batchProgress: BatchProgress | null;
 
   startTraining: (config: TrainingConfig) => Promise<void>;
   stopTraining: () => Promise<void>;
@@ -180,6 +190,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
   baseModels: [],
   currentTrainingId: null,
   error: null,
+  batchProgress: null,
 
   startTraining: async (config) => {
     set({ error: null });  // Clear previous error
@@ -231,7 +242,37 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
           map50: m.map50,
           map50_95: m.map50_95,
         };
-        get().updateMetrics(metrics);
+        set((state) => ({
+          metrics: [...state.metrics, metrics],
+          currentEpoch: metrics.epoch,
+          totalEpochs: event.payload.total_epochs || state.totalEpochs,
+        }));
+      });
+
+      const unlistenBatchProgress = await listen<{
+        training_id: string;
+        epoch: number;
+        total_epochs: number;
+        batch: number;
+        total_batches: number;
+        box_loss: number;
+        cls_loss: number;
+        dfl_loss: number;
+        learning_rate: number;
+      }>('training-batch-progress', (event) => {
+        const p = event.payload;
+        set((state) => ({
+          currentEpoch: p.epoch,
+          totalEpochs: p.total_epochs || state.totalEpochs,
+          batchProgress: {
+            batch: p.batch,
+            totalBatches: p.total_batches,
+            boxLoss: p.box_loss,
+            clsLoss: p.cls_loss,
+            dflLoss: p.dfl_loss,
+            learningRate: p.learning_rate,
+          },
+        }));
       });
 
       // Listen for training complete
@@ -242,6 +283,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
         error?: string;
       }>('training-complete', (event) => {
         unlistenProgress();
+        unlistenBatchProgress();
         unlistenComplete();
         const { success, model_path, error } = event.payload;
         if (success && model_path) {
@@ -269,9 +311,12 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
 
       if (!response.success || !response.data) {
         unlistenProgress();
+        unlistenBatchProgress();
         unlistenComplete();
         throw new Error(response.error || '启动训练失败');
       }
+
+      const trainingId = typeof response.data === 'string' ? response.data : (response.data as any).training_id;
 
       set({
         isTraining: true,
@@ -280,7 +325,7 @@ export const useTrainingStore = create<TrainingState>((set, get) => ({
         totalEpochs: config.epochs,
         startTime: new Date(),
         metrics: [],
-        currentTrainingId: response.data.training_id,
+        currentTrainingId: trainingId,
       });
     } catch (error) {
       console.error('Failed to start training:', error);

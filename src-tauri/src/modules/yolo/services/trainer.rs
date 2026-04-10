@@ -3,9 +3,11 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::net::TcpListener;
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::time::{Duration, Instant};
 use tokio_stream::StreamExt;
 
 pub struct TrainerService {
@@ -14,10 +16,44 @@ pub struct TrainerService {
 
 struct TrainingHandle {
     status: TrainingStatus,
-    stop_tx: Option<mpsc::Sender<()>>,
-    child: Child,
-    stdin: Option<tokio::io::BufWriter<tokio::process::ChildStdin>>,
+    stop_tx: Option<oneshot::Sender<()>>,
     model_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TrainingEvent {
+    Started {
+        training_id: String,
+        total_epochs: u32,
+        cuda_available: bool,
+        cuda_version: Option<String>,
+    },
+    BatchProgress {
+        training_id: String,
+        epoch: u32,
+        total_epochs: u32,
+        batch: u32,
+        total_batches: u32,
+        box_loss: f32,
+        cls_loss: f32,
+        dfl_loss: f32,
+        learning_rate: f32,
+    },
+    Progress {
+        training_id: String,
+        status: TrainingStatus,
+    },
+    Complete {
+        training_id: String,
+        model_path: Option<String>,
+    },
+    Error {
+        training_id: String,
+        error: String,
+    },
+    Stopped {
+        training_id: String,
+    },
 }
 
 impl TrainerService {
@@ -33,14 +69,10 @@ impl TrainerService {
         hex::encode(bytes)
     }
 
-    /// Find and start the Python sidecar process
-    async fn start_sidecar(&self) -> Result<Child, String> {
-        // Search paths: try multiple locations to find yolo_server.py
+    async fn start_sidecar(&self, tcp_port: u16) -> Result<Child, String> {
         let search_paths: [std::path::PathBuf; 3] = [
-            // Relative to cwd (project root when running `npm run tauri dev`)
             std::path::PathBuf::from("src-tauri/scripts/yolo_server.py"),
             std::path::PathBuf::from("scripts/yolo_server.py"),
-            // Relative to CARGO_MANIFEST_DIR (src-tauri/)
             std::path::PathBuf::from(
                 std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default(),
             )
@@ -57,7 +89,8 @@ impl TrainerService {
         let python_cmd = if cfg!(windows) { "python" } else { "python3" };
 
         let child = Command::new(python_cmd)
-            .arg(script_path)
+            .arg(&script_path)
+            .arg(tcp_port.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -72,23 +105,33 @@ impl TrainerService {
         &self,
         project_path: String,
         request: TrainingRequest,
+        event_tx: mpsc::UnboundedSender<TrainingEvent>,
     ) -> Result<String, String> {
         let training_id = Self::generate_id();
-        self.start_training_pipe(training_id, project_path, request)
+        self.start_training_pipe(training_id, project_path, request, event_tx)
             .await
     }
 
-    /// Start training via stdin/stdout pipe
-    /// Python actively reports progress via callbacks
     async fn start_training_pipe(
         &self,
         training_id: String,
         project_path: String,
         request: TrainingRequest,
+        event_tx: mpsc::UnboundedSender<TrainingEvent>,
     ) -> Result<String, String> {
-        eprintln!("[Trainer] Starting training via pipe...");
+        eprintln!("[Trainer] Starting training via TCP+stdin...");
+        eprintln!("[Trainer] Training ID: {}", training_id);
+        eprintln!("[Trainer] Project path: {}", project_path);
 
-        let mut child = self.start_sidecar().await?;
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|e| format!("Failed to create TCP listener: {}", e))?;
+        let tcp_port = listener.local_addr().unwrap().port();
+        eprintln!("[Trainer] TCP listener on port {}", tcp_port);
+
+        eprintln!("[Trainer] Starting Python sidecar...");
+        let mut child = self.start_sidecar(tcp_port).await?;
+        eprintln!("[Trainer] Python sidecar started with PID: {:?}", child.id());
 
         let stdin = child
             .stdin
@@ -98,8 +141,32 @@ impl TrainerService {
             .stdout
             .take()
             .ok_or_else(|| "Failed to take stdout".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Failed to take stderr".to_string())?;
 
-        // Build config — pass ALL hyperparameters to Python
+        eprintln!("[Trainer] Waiting for Python TCP connection (timeout 30s)...");
+        let (tcp_stream, addr) = tokio::time::timeout(Duration::from_secs(30), listener.accept())
+            .await
+            .map_err(|_| "Timeout waiting for Python TCP connection (30s)".to_string())?
+            .map_err(|e| format!("Failed to accept TCP connection: {}", e))?;
+        eprintln!("[Trainer] Python TCP connection accepted from {}", addr);
+
+        let stdout_drain_id = training_id.clone();
+        tokio::spawn(async move {
+            let mut stdout_drain = BufReader::new(stdout).lines();
+            loop {
+                match stdout_drain.next_line().await {
+                    Ok(Some(line)) => {
+                        eprintln!("[YOLO:{}:stdout] {}", stdout_drain_id, line);
+                    }
+                    Ok(None) => break,
+                    Err(_) => break,
+                }
+            }
+        });
+
         let config = serde_json::json!({
             "project_path": project_path,
             "base_model": request.base_model,
@@ -109,16 +176,13 @@ impl TrainerService {
             "device": request.device_id,
             "workers": request.workers,
             "optimizer": request.optimizer,
-            // Hyperparameters (lr0=initial LR, lrf=final LR, momentum, weight_decay)
             "lr0": request.lr0,
             "lrf": request.lrf,
             "momentum": request.momentum,
             "weight_decay": request.weight_decay,
-            // Warmup
             "warmup_epochs": request.warmup_epochs,
             "warmup_bias_lr": request.warmup_bias_lr,
             "warmup_momentum": request.warmup_momentum,
-            // Augmentation
             "hsv_h": request.hsv_h,
             "hsv_s": request.hsv_s,
             "hsv_v": request.hsv_v,
@@ -131,7 +195,7 @@ impl TrainerService {
             "mosaic": request.mosaic,
             "mixup": request.mixup,
             "copy_paste": request.copy_paste,
-            // Training options
+            "close_mosaic": request.close_mosaic,
             "rect": request.rect,
             "cos_lr": request.cos_lr,
             "single_cls": request.single_cls,
@@ -140,27 +204,26 @@ impl TrainerService {
             "cache": request.cache,
         });
 
-        // Send start command - keep stdin alive by wrapping in BufWriter but not dropping
         let start_cmd = serde_json::json!({
             "type": "start",
             "config": config,
         });
 
-        let mut stdin_writer = tokio::io::BufWriter::new(stdin);
+        eprintln!("[Trainer] Sending start command via stdin...");
+        let mut stdin_writer = BufWriter::new(stdin);
+        let cmd_str = serde_json::to_string(&start_cmd).unwrap() + "\n";
+        eprintln!("[Trainer] Start command length: {} bytes", cmd_str.len());
         stdin_writer
-            .write_all(
-                (serde_json::to_string(&start_cmd).unwrap() + "\n").as_bytes(),
-            )
+            .write_all(cmd_str.as_bytes())
             .await
             .map_err(|e| format!("Failed to write start command: {}", e))?;
         stdin_writer
             .flush()
             .await
             .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+        eprintln!("[Trainer] Start command sent successfully");
 
-        // Keep stdin writer alive - don't drop it here! Python needs stdin to stay open.
-
-        let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
+        let (stop_tx, stop_rx) = oneshot::channel::<()>();
 
         let handle = TrainingHandle {
             status: TrainingStatus {
@@ -173,8 +236,6 @@ impl TrainerService {
                 error: None,
             },
             stop_tx: Some(stop_tx),
-            child,
-            stdin: Some(stdin_writer),  // Keep stdin alive
             model_path: None,
         };
 
@@ -183,29 +244,90 @@ impl TrainerService {
             .await
             .insert(training_id.clone(), handle);
 
-        // Spawn event reader - Python actively sends events
-        let process_id = training_id.clone();
-        let processes = Arc::clone(&self.processes);
-        let mut stdout_reader = BufReader::new(stdout).lines();
-        let mut stop_rx = stop_rx;
-
+        let stderr_process_id = training_id.clone();
         tokio::spawn(async move {
+            let mut stderr_reader = BufReader::new(stderr).lines();
             loop {
-                tokio::select! {
-                    _ = stop_rx.recv() => {
-                        // Send stop command to Python
-                        eprintln!("[Trainer] Sending stop command to Python...");
-                        // Note: Can't easily write to stdin here, so just kill
-                        if let Some(h) = processes.write().await.get_mut(&process_id) {
-                            let _ = h.child.kill().await;
-                            h.status.running = false;
-                        }
+                match stderr_reader.next_line().await {
+                    Ok(Some(line)) => {
+                        eprintln!("[YOLO:{}:stderr] {}", stderr_process_id, line);
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        eprintln!(
+                            "[Trainer] Failed to read stderr for {}: {}",
+                            stderr_process_id, error
+                        );
                         break;
                     }
-                    line = stdout_reader.next_line() => {
+                }
+            }
+        });
+
+        let process_id = training_id.clone();
+        let processes = Arc::clone(&self.processes);
+        let mut tcp_reader = BufReader::new(tcp_stream).lines();
+        let mut stop_rx = stop_rx;
+        let mut stop_requested = false;
+        let mut stop_timer_enabled = false;
+        let mut terminal_event_sent = false;
+
+        tokio::spawn(async move {
+            let stop_sleep = tokio::time::sleep(Duration::from_secs(60 * 60 * 24));
+            tokio::pin!(stop_sleep);
+            loop {
+                tokio::select! {
+                    _ = &mut stop_rx, if !stop_requested => {
+                        eprintln!("[Trainer] Sending stop command to Python...");
+                        stop_requested = true;
+                        stop_timer_enabled = true;
+                        stop_sleep
+                            .as_mut()
+                            .reset(Instant::now() + Duration::from_secs(5));
+
+                        let stop_cmd = serde_json::json!({ "type": "stop" });
+                        let stop_payload = serde_json::to_string(&stop_cmd).unwrap() + "\n";
+                        if let Err(error) = stdin_writer.write_all(stop_payload.as_bytes()).await {
+                            eprintln!("[Trainer] Failed to write stop command: {}", error);
+                            let _ = child.kill().await;
+                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                h.status.running = false;
+                                h.status.paused = false;
+                            }
+                            let _ = event_tx.send(TrainingEvent::Stopped {
+                                training_id: process_id.clone(),
+                            });
+                            break;
+                        }
+
+                        if let Err(error) = stdin_writer.flush().await {
+                            eprintln!("[Trainer] Failed to flush stop command: {}", error);
+                            let _ = child.kill().await;
+                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                h.status.running = false;
+                                h.status.paused = false;
+                            }
+                            let _ = event_tx.send(TrainingEvent::Stopped {
+                                training_id: process_id.clone(),
+                            });
+                            break;
+                        }
+                    }
+                    _ = &mut stop_sleep, if stop_timer_enabled => {
+                        eprintln!("[Trainer] Stop timed out, killing Python process...");
+                        let _ = child.kill().await;
+                        if let Some(h) = processes.write().await.get_mut(&process_id) {
+                            h.status.running = false;
+                            h.status.paused = false;
+                        }
+                        let _ = event_tx.send(TrainingEvent::Stopped {
+                            training_id: process_id.clone(),
+                        });
+                        break;
+                    }
+                    line = tcp_reader.next_line() => {
                         match line {
                             Ok(Some(line)) => {
-                                // Parse JSON event from Python
                                 if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&line) {
                                     let event_type = resp
                                         .get("type")
@@ -235,7 +357,6 @@ impl TrainerService {
                                                             (epoch as f32 / total as f32) * 100.0;
                                                     }
 
-                                                    // Extract metrics
                                                     let mut metrics = TrainingMetrics::default();
                                                     metrics.train_box_loss =
                                                         data.get("box_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -247,31 +368,124 @@ impl TrainerService {
                                                         data.get("precision").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                                                     metrics.recall =
                                                         data.get("recall").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.val_box_loss =
+                                                        data.get("val_box_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.val_cls_loss =
+                                                        data.get("val_cls_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.val_dfl_loss =
+                                                        data.get("val_dfl_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                                                     metrics.map50 =
                                                         data.get("mAP50").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                                                     metrics.map50_95 =
                                                         data.get("mAP50-95").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.learning_rate =
+                                                        data.get("learning_rate").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
                                                     eprintln!("[Trainer] Progress updated: epoch={}, metrics box_loss={}", epoch, metrics.train_box_loss);
                                                     h.status.metrics = metrics;
+                                                    eprintln!("[Trainer] Sending Progress event to channel...");
+                                                    let result = event_tx.send(TrainingEvent::Progress {
+                                                        training_id: process_id.clone(),
+                                                        status: h.status.clone(),
+                                                    });
+                                                    if result.is_err() {
+                                                        eprintln!("[Trainer] WARNING: Failed to send Progress event: {:?}", result.err());
+                                                    } else {
+                                                        eprintln!("[Trainer] Progress event sent successfully");
+                                                    }
                                                 }
                                             }
                                         }
                                         "started" => {
                                             eprintln!("[Trainer] Training started event received");
+                                            let total_epochs = resp
+                                                .get("data")
+                                                .and_then(|data| data.get("total_epochs"))
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0) as u32;
+                                            let cuda_available = resp
+                                                .get("data")
+                                                .and_then(|data| data.get("cuda_available"))
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(false);
+                                            let cuda_version = resp
+                                                .get("data")
+                                                .and_then(|data| data.get("cuda_version"))
+                                                .and_then(|v| v.as_str())
+                                                .map(String::from);
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.total_epochs = total_epochs;
+                                            }
+                                            let _ = event_tx.send(TrainingEvent::Started {
+                                                training_id: process_id.clone(),
+                                                total_epochs,
+                                                cuda_available,
+                                                cuda_version,
+                                            });
+                                        }
+                                        "batch_progress" => {
+                                            if let Some(data) = resp.get("data") {
+                                                let epoch = data.get("epoch").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let total_epochs = data.get("total_epochs").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let batch = data.get("batch").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let total_batches = data.get("total_batches").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let box_loss = data.get("box_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                let cls_loss = data.get("cls_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                let dfl_loss = data.get("dfl_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                let learning_rate = data.get("learning_rate").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+                                                if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                    h.status.epoch = epoch;
+                                                    h.status.total_epochs = total_epochs;
+                                                    if total_epochs > 0 && total_batches > 0 {
+                                                        let epoch_frac = (epoch - 1) as f32 / total_epochs as f32;
+                                                        let batch_frac = batch as f32 / total_batches as f32 / total_epochs as f32;
+                                                        h.status.progress_percent = (epoch_frac + batch_frac) * 100.0;
+                                                    }
+                                                    h.status.metrics.train_box_loss = box_loss;
+                                                    h.status.metrics.train_cls_loss = cls_loss;
+                                                    h.status.metrics.train_dfl_loss = dfl_loss;
+                                                    h.status.metrics.learning_rate = learning_rate;
+                                                }
+
+                                                eprintln!("[Trainer] Sending BatchProgress event (batch={}/{})...", batch, total_batches);
+                                                match event_tx.send(TrainingEvent::BatchProgress {
+                                                    training_id: process_id.clone(),
+                                                    epoch,
+                                                    total_epochs,
+                                                    batch,
+                                                    total_batches,
+                                                    box_loss,
+                                                    cls_loss,
+                                                    dfl_loss,
+                                                    learning_rate,
+                                                }) {
+                                                    Ok(_) => eprintln!("[Trainer] BatchProgress event sent"),
+                                                    Err(e) => eprintln!("[Trainer] WARNING: BatchProgress send failed: {:?}", e),
+                                                }
+                                            }
                                         }
                                         "complete" => {
                                             if let Some(h) = processes.write().await.get_mut(&process_id) {
                                                 h.status.running = false;
                                                 h.status.progress_percent = 100.0;
                                                 if let Some(data) = resp.get("data") {
-                                                    // Extract model_path from complete event if available
                                                     if let Some(model_path) = data.get("model_path").and_then(|v| v.as_str()) {
                                                         h.model_path = Some(model_path.to_string());
                                                     }
                                                 }
                                             }
                                             eprintln!("[Trainer] Training complete event received");
+                                            let model_path = processes
+                                                .read()
+                                                .await
+                                                .get(&process_id)
+                                                .and_then(|h| h.model_path.clone());
+                                            let _ = event_tx.send(TrainingEvent::Complete {
+                                                training_id: process_id.clone(),
+                                                model_path,
+                                            });
+                                            terminal_event_sent = true;
                                             break;
                                         }
                                         "error" => {
@@ -286,14 +500,37 @@ impl TrainerService {
                                                 h.status.error = Some(error_msg.clone());
                                             }
                                             eprintln!("[Trainer] Training error event processed: {}", error_msg);
+                                            let _ = event_tx.send(TrainingEvent::Error {
+                                                training_id: process_id.clone(),
+                                                error: error_msg,
+                                            });
+                                            terminal_event_sent = true;
                                             break;
                                         }
                                         "stopped" => {
                                             if let Some(h) = processes.write().await.get_mut(&process_id) {
                                                 h.status.running = false;
+                                                h.status.paused = false;
                                             }
                                             eprintln!("[Trainer] Training stopped event received");
+                                            let _ = event_tx.send(TrainingEvent::Stopped {
+                                                training_id: process_id.clone(),
+                                            });
+                                            terminal_event_sent = true;
                                             break;
+                                        }
+                                        "connected" => {
+                                            eprintln!("[Trainer] Python TCP connected, pid={}", 
+                                                resp.get("data").and_then(|d| d.get("pid")).and_then(|v| v.as_u64()).unwrap_or(0));
+                                        }
+                                        "heartbeat" => {
+                                            if let Some(data) = resp.get("data") {
+                                                let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                let epoch = data.get("epoch").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let batch = data.get("batch").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                let total_batches = data.get("total_batches").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                                eprintln!("[Trainer] Heartbeat: running={}, epoch={}, batch={}/{}", running, epoch, batch, total_batches);
+                                            }
                                         }
                                         "log" => {
                                             if let Some(data) = resp.get("data") {
@@ -319,22 +556,52 @@ impl TrainerService {
                                 }
                             }
                             Ok(None) | Err(_) => {
-                                // Stream ended
-                                eprintln!("[Trainer] Output stream ended");
-                                if let Some(h) = processes.write().await.get_mut(&process_id) {
-                                    h.status.running = false;
-                                }
+                                eprintln!("[Trainer] TCP connection closed");
                                 break;
                             }
                         }
                     }
+                    exit = child.wait() => {
+                        match exit {
+                            Ok(status) => {
+                                eprintln!("[Trainer] Python process exited: {}", status);
+                            }
+                            Err(error) => {
+                                eprintln!("[Trainer] Failed waiting Python process: {}", error);
+                            }
+                        }
+                        if let Some(h) = processes.write().await.get_mut(&process_id) {
+                            h.status.running = false;
+                            h.status.paused = false;
+                        }
+                        if !terminal_event_sent {
+                            let error = processes
+                                .read()
+                                .await
+                                .get(&process_id)
+                                .and_then(|h| h.status.error.clone());
+                            if let Some(error) = error {
+                                let _ = event_tx.send(TrainingEvent::Error {
+                                    training_id: process_id.clone(),
+                                    error,
+                                });
+                            } else if stop_requested {
+                                let _ = event_tx.send(TrainingEvent::Stopped {
+                                    training_id: process_id.clone(),
+                                });
+                            }
+                        }
+                        return;
+                    }
                 }
             }
 
-            // Clean up
+            if let Err(error) = child.wait().await {
+                eprintln!("[Trainer] Failed final wait for Python process: {}", error);
+            }
             if let Some(h) = processes.write().await.get_mut(&process_id) {
                 h.status.running = false;
-                let _ = h.child.wait().await;
+                h.status.paused = false;
             }
         });
 
@@ -342,16 +609,19 @@ impl TrainerService {
     }
 
     pub async fn stop_training(&self, training_id: &str) -> Result<(), String> {
-        let mut processes = self.processes.write().await;
-        if let Some(handle) = processes.get_mut(training_id) {
-            if let Some(tx) = handle.stop_tx.take() {
-                let _ = tx.send(()).await;
-            }
-            // 真正 kill Python 进程
-            let _ = handle.child.kill().await;
-            handle.status.running = false;
+        let stop_tx = {
+            let mut processes = self.processes.write().await;
+            let handle = processes
+                .get_mut(training_id)
+                .ok_or_else(|| "Training not found".to_string())?;
             handle.status.paused = false;
+            handle.stop_tx.take()
+        };
+
+        if let Some(tx) = stop_tx {
+            let _ = tx.send(());
         }
+
         Ok(())
     }
 
@@ -408,7 +678,6 @@ impl TrainerService {
             .and_then(|h| h.model_path.clone())
     }
 
-    /// Check if a model exists locally in cache directory
     pub async fn check_model(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
         let cache_dir = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
@@ -424,7 +693,6 @@ impl TrainerService {
         }
     }
 
-    /// Download a model directly with progress tracking
     pub async fn download_model(
         &self,
         model_name: &str,
@@ -450,7 +718,6 @@ impl TrainerService {
 
         let model_path = cache_dir.join(model_name);
 
-        // Check if model already exists
         if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
             progress_callback(format!("模型已在缓存中: {}", model_path.display()));
             return Ok(model_path.to_string_lossy().to_string());

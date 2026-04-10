@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Play,
   Square,
@@ -8,7 +8,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { useTrainingStore, TrainingConfig, TrainingMetrics } from '../../../core/stores/trainingStore';
+import { useTrainingStore, TrainingConfig } from '../../../core/stores/trainingStore';
+import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
 import {
   checkModel,
   downloadModel,
@@ -131,12 +132,24 @@ export default function TrainingPage() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
   const [downloadError, setDownloadError] = useState('');
-  const [cudaAvailable, setCudaAvailable] = useState(false);
+  const [cudaAvailable, setCudaAvailable] = useState(true); // 默认启用 GPU，因为用户 PyTorch CUDA 正常
 
   // Listen for model download progress
   useEffect(() => {
     const unlisten = listen<{ model: string; message: string }>('model-download-progress', (event) => {
       setDownloadProgress(event.payload.message);
+    });
+    return () => {
+      unlisten.then(fn => fn());
+    };
+  }, []);
+
+  // Listen for training started event (includes CUDA info from Python sidecar)
+  useEffect(() => {
+    const unlisten = listen<{ training_id: string; cuda_available: boolean; cuda_version: string | null }>('training-started', (event) => {
+      const { cuda_available, cuda_version } = event.payload;
+      console.log('[TrainingPage] Received training-started event: cuda_available=%s, cuda_version=%s', cuda_available, cuda_version);
+      setCudaAvailable(cuda_available);
     });
     return () => {
       unlisten.then(fn => fn());
@@ -173,6 +186,13 @@ export default function TrainingPage() {
   }, [isTraining, currentEpoch, totalEpochs]);
 
   const handleStartTraining = async () => {
+    // Check if a project is open
+    const { currentProject } = useWorkspaceStore.getState();
+    if (!currentProject) {
+      alert('请先打开一个项目才能开始训练');
+      return;
+    }
+
     const modelName = config.base_model;
 
     // First check if model exists
@@ -211,6 +231,15 @@ export default function TrainingPage() {
   };
 
   const progress = totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0;
+  const batchProgress = useTrainingStore((s) => s.batchProgress);
+  const detailedProgress = (() => {
+    if (!batchProgress || totalEpochs <= 0) return progress;
+    const epochFrac = (currentEpoch - 1) / totalEpochs;
+    const batchFrac = batchProgress.totalBatches > 0
+      ? batchProgress.batch / batchProgress.totalBatches / totalEpochs
+      : 0;
+    return Math.min((epochFrac + batchFrac) * 100, 100);
+  })();
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -328,7 +357,7 @@ export default function TrainingPage() {
                       }
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.epochs === 0) {
                       setConfig({ ...config, epochs: 50 });
                     }
@@ -350,7 +379,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, batch_size: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.batch_size === 0) setConfig({ ...config, batch_size: 12 });
                   }}
                   style={{ width: 60, marginLeft: 8, textAlign: 'center' }}
@@ -365,11 +394,16 @@ export default function TrainingPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
                 <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
                   正在训练 Epoch {currentEpoch} / {totalEpochs}
+                  {batchProgress && batchProgress.totalBatches > 0 && (
+                    <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8 }}>
+                      (Batch {batchProgress.batch}/{batchProgress.totalBatches})
+                    </span>
+                  )}
                 </span>
-                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>{progress.toFixed(1)}%</span>
+                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>{detailedProgress.toFixed(1)}%</span>
               </div>
               <div className="progress-bar" style={{ height: 12 }}>
-                <div className="progress-fill" style={{ width: `${progress}%` }} />
+                <div className="progress-fill" style={{ width: `${detailedProgress}%` }} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-lg)' }}>
                 <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
@@ -380,17 +414,21 @@ export default function TrainingPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>预计剩余</div>
                   <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{remainingTime}</div>
                 </div>
-                {metrics.length > 0 && (
-                  <>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainBoxLoss.toFixed(4)}</div>
+                {(metrics.length > 0 || batchProgress) && (
+                  <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
+                    <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {metrics.length > 0 ? metrics[metrics.length - 1].trainBoxLoss.toFixed(4) : batchProgress?.boxLoss.toFixed(4) || '-'}
                     </div>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainClsLoss.toFixed(4)}</div>
+                  </div>
+                )}
+                {(metrics.length > 0 || batchProgress) && (
+                  <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
+                    <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {metrics.length > 0 ? metrics[metrics.length - 1].trainClsLoss.toFixed(4) : batchProgress?.clsLoss.toFixed(4) || '-'}
                     </div>
-                  </>
+                  </div>
                 )}
                 {metrics.length > 0 && metrics[metrics.length - 1].map50 > 0 && (
                   <>
@@ -477,7 +515,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, image_size: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.image_size === 0) setConfig({ ...config, image_size: 640 });
                   }}
                   style={{ marginTop: 4 }}
@@ -493,8 +531,8 @@ export default function TrainingPage() {
                         if (result.success && result.data) {
                           setCudaAvailable(result.data.cuda_available);
                         }
-                      } catch (e) {
-                        console.warn('Failed to check CUDA:', e);
+                      } catch {
+                        console.warn('Failed to check CUDA');
                       }
                     }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
@@ -533,7 +571,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, workers: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.workers === 0) setConfig({ ...config, workers: 8 });
                   }}
                   style={{ marginTop: 4 }}
@@ -696,7 +734,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, lr0: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.lr0 === 0) setConfig({ ...config, lr0: 0.01 });
                   }}
                   step="0.001"
@@ -717,7 +755,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, lrf: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.lrf === 0) setConfig({ ...config, lrf: 0.01 });
                   }}
                   step="0.001"
@@ -738,7 +776,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, momentum: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.momentum === 0) setConfig({ ...config, momentum: 0.937 });
                   }}
                   step="0.001"
@@ -759,7 +797,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, weight_decay: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.weight_decay === 0) setConfig({ ...config, weight_decay: 0.0005 });
                   }}
                   step="0.0001"
@@ -826,7 +864,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, patience: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.patience === 0) setConfig({ ...config, patience: 50 });
                   }}
                   style={{ marginTop: 4 }}
@@ -846,7 +884,7 @@ export default function TrainingPage() {
                       if (!isNaN(num)) setConfig({ ...config, close_mosaic: num });
                     }
                   }}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     if (config.close_mosaic === 0) setConfig({ ...config, close_mosaic: 10 });
                   }}
                   style={{ marginTop: 4 }}

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
@@ -157,7 +156,7 @@ impl VideoService {
             "--iou".to_string(),
             config.iou_threshold.to_string(),
             "--device".to_string(),
-            config.device.as_str(),
+            config.device.clone(),
             "--output-json".to_string(),
             output_json.to_str().unwrap_or("").to_string(),
             "--frame-interval".to_string(),
@@ -179,7 +178,7 @@ impl VideoService {
         let mut reader = BufReader::new(stdout).lines();
 
         let mut all_results: Vec<FrameAnnotations> = Vec::new();
-        let mut current_frame: Option<FrameAnnotations> = None;
+        let mut _current_frame: Option<FrameAnnotations> = None;
 
         // Parse stdout for progress updates
         loop {
@@ -225,7 +224,7 @@ impl VideoService {
                                 })
                                 .unwrap_or_default();
 
-                            current_frame = Some(FrameAnnotations {
+                            _current_frame = Some(FrameAnnotations {
                                 frame_index: frame_idx,
                                 timestamp_ms,
                                 boxes: boxes.clone(),
@@ -316,7 +315,7 @@ impl VideoService {
         // Get video duration
         let info = self.probe_video(video_path).await?;
         let interval_sec = interval_ms as f64 / 1000.0;
-        let num_frames = (info.duration / interval_sec).ceil() as u32;
+        let _num_frames = (info.duration / interval_sec).ceil() as u32;
 
         // Use ffmpeg to extract frames
         let output_pattern = PathBuf::from(output_dir).join("frame_%04d.jpg");
