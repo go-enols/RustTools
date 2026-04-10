@@ -230,16 +230,7 @@ export default function TrainingPage() {
     }
   };
 
-  const progress = totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0;
   const batchProgress = useTrainingStore((s) => s.batchProgress);
-  const detailedProgress = (() => {
-    if (!batchProgress || totalEpochs <= 0) return progress;
-    const epochFrac = (currentEpoch - 1) / totalEpochs;
-    const batchFrac = batchProgress.totalBatches > 0
-      ? batchProgress.batch / batchProgress.totalBatches / totalEpochs
-      : 0;
-    return Math.min((epochFrac + batchFrac) * 100, 100);
-  })();
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -391,20 +382,34 @@ export default function TrainingPage() {
           {/* Progress */}
           {isTraining && (
             <div className="card" style={{ marginBottom: 'var(--spacing-lg)', border: '1px solid var(--accent-primary)', background: 'rgba(22, 119, 255, 0.05)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
                 <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
-                  正在训练 Epoch {currentEpoch} / {totalEpochs}
-                  {batchProgress && batchProgress.totalBatches > 0 && (
-                    <span style={{ fontWeight: 400, color: 'var(--text-secondary)', marginLeft: 8 }}>
-                      (Batch {batchProgress.batch}/{batchProgress.totalBatches})
-                    </span>
-                  )}
+                  总进度 Epoch {currentEpoch} / {totalEpochs}
                 </span>
-                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>{detailedProgress.toFixed(1)}%</span>
+                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>
+                  {totalEpochs > 0 ? ((currentEpoch / totalEpochs) * 100).toFixed(1) : 0}%
+                </span>
               </div>
-              <div className="progress-bar" style={{ height: 12 }}>
-                <div className="progress-fill" style={{ width: `${detailedProgress}%` }} />
+              <div className="progress-bar" style={{ height: 16 }}>
+                <div className="progress-fill" style={{ width: `${totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0}%` }} />
               </div>
+
+              {batchProgress && batchProgress.totalBatches > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)', marginTop: 'var(--spacing-md)' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                      当前 Epoch 进度 Batch {batchProgress.batch} / {batchProgress.totalBatches}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {batchProgress.totalBatches > 0 ? ((batchProgress.batch / batchProgress.totalBatches) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                  <div className="progress-bar" style={{ height: 8, background: 'var(--border-default)' }}>
+                    <div style={{ height: '100%', width: `${batchProgress.totalBatches > 0 ? (batchProgress.batch / batchProgress.totalBatches) * 100 : 0}%`, background: 'var(--accent-secondary, #10b981)', borderRadius: 'var(--radius-full)', transition: 'width 0.3s' }} />
+                  </div>
+                </>
+              )}
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-lg)' }}>
                 <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>已用时间</div>
@@ -414,21 +419,29 @@ export default function TrainingPage() {
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>预计剩余</div>
                   <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{remainingTime}</div>
                 </div>
-                {(metrics.length > 0 || batchProgress) && (
-                  <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {metrics.length > 0 ? metrics[metrics.length - 1].trainBoxLoss.toFixed(4) : batchProgress?.boxLoss.toFixed(4) || '-'}
+                {metrics.length > 0 && (
+                  <>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainBoxLoss.toFixed(4)}</div>
                     </div>
-                  </div>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainClsLoss.toFixed(4)}</div>
+                    </div>
+                  </>
                 )}
-                {(metrics.length > 0 || batchProgress) && (
-                  <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {metrics.length > 0 ? metrics[metrics.length - 1].trainClsLoss.toFixed(4) : batchProgress?.clsLoss.toFixed(4) || '-'}
+                {batchProgress && (
+                  <>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{batchProgress.boxLoss.toFixed(4)}</div>
                     </div>
-                  </div>
+                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
+                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{batchProgress.clsLoss.toFixed(4)}</div>
+                    </div>
+                  </>
                 )}
                 {metrics.length > 0 && metrics[metrics.length - 1].map50 > 0 && (
                   <>
