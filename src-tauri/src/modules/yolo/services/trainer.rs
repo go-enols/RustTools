@@ -204,14 +204,13 @@ impl TrainerService {
         
         progress_callback(format!("开始下载模型: {}", model_name));
         
-        // YOLO预训练模型映射
+        // YOLO预训练模型映射 - 使用GitHub官方源
         let model_urls = HashMap::from([
-            ("yolov8n", "https://huggingface.co/onnxruntime/yolov8n/resolve/main/yolov8n.onnx"),
-            ("yolov8s", "https://huggingface.co/onnxruntime/yolov8s/resolve/main/yolov8s.onnx"),
-            ("yolov8m", "https://huggingface.co/onnxruntime/yolov8m/resolve/main/yolov8m.onnx"),
-            ("yolov8l", "https://huggingface.co/onnxruntime/yolov8l/resolve/main/yolov8l.onnx"),
-            ("yolov8x", "https://huggingface.co/onnxruntime/yolov8x/resolve/main/yolov8x.onnx"),
-            ("yolov8n-pose", "https://huggingface.co/onnxruntime/yolov8n-pose/resolve/main/yolov8n-pose.onnx"),
+            ("yolov8n", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.onnx"),
+            ("yolov8s", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.onnx"),
+            ("yolov8m", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8m.onnx"),
+            ("yolov8l", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8l.onnx"),
+            ("yolov8x", "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8x.onnx"),
         ]);
         
         let url = model_urls.get(model_name.to_lowercase().as_str())
