@@ -1,0 +1,30 @@
+{
+  "tag": "v8.4.0",
+  "assets": [
+    {
+      "name": "yolo11n-cls.onnx",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-cls.onnx",
+      "size_mb": 10.769930839538574
+    },
+    {
+      "name": "yolo11n-obb.onnx",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-obb.onnx",
+      "size_mb": 10.493975639343262
+    },
+    {
+      "name": "yolo11n-pose.onnx",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-pose.onnx",
+      "size_mb": 11.30433177947998
+    },
+    {
+      "name": "yolo11n-seg.onnx",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.onnx",
+      "size_mb": 11.218754768371582
+    },
+    {
+      "name": "yolo11n.onnx",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx",
+      "size_mb": 10.423833847045898
+    }
+  ]
+}

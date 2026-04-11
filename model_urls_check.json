@@ -1,0 +1,111 @@
+{
+  "working": [
+    {
+      "name": "yolo11n",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.onnx",
+      "status": 200,
+      "size_mb": 10.423833847045898,
+      "ok": true
+    }
+  ],
+  "not_working": [
+    {
+      "name": "yolo11s",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11s.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolo11m",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolo11l",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11l.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolo11x",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11x.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolov8n",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolov8s",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolov8m",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8m.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolov8l",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8l.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolov8x",
+      "url": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8x.onnx",
+      "status": 404,
+      "size_mb": 8.58306884765625e-06,
+      "ok": false
+    },
+    {
+      "name": "yolo11n-modelscope",
+      "url": "https://www.modelscope.cn/models/AI-ModelScope/YOLOv11n/resolve/master/yolo11n.onnx",
+      "status": 404,
+      "size_mb": 0.00013828277587890625,
+      "ok": false
+    },
+    {
+      "name": "yolo11s-modelscope",
+      "url": "https://www.modelscope.cn/models/AI-ModelScope/YOLOv11s/resolve/master/yolo11s.onnx",
+      "status": 404,
+      "size_mb": 0.00013828277587890625,
+      "ok": false
+    },
+    {
+      "name": "yolov8n-modelscope",
+      "url": "https://www.modelscope.cn/models/AI-ModelScope/YOLOv8n/resolve/master/yolov8n.onnx",
+      "status": 404,
+      "size_mb": 0.00013828277587890625,
+      "ok": false
+    },
+    {
+      "name": "yolov8s-modelscope",
+      "url": "https://www.modelscope.cn/models/AI-ModelScope/YOLOv8s/resolve/master/yolov8s.onnx",
+      "status": 404,
+      "size_mb": 0.00013828277587890625,
+      "ok": false
+    },
+    {
+      "name": "yolov8m-modelscope",
+      "url": "https://www.modelscope.cn/models/AI-ModelScope/YOLOv8m/resolve/master/yolov8m.onnx",
+      "status": 404,
+      "size_mb": 0.00013828277587890625,
+      "ok": false
+    }
+  ]
+}
