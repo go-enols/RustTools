@@ -257,11 +257,20 @@ impl DesktopCaptureService {
         
         let output = &result[0];
         let shape = output.shape();
+        let len = output.len();
         
         // 调试：打印输出形状和大小
-        eprintln!("[DEBUG] Model output shape: {:?}, len: {}", shape, output.len());
-        let output_size_mb = output.len() * 4 / (1024 * 1024);
+        eprintln!("[DEBUG] Model output shape: {:?}, len: {}", shape, len);
+        let output_size_mb = len * 4 / (1024 * 1024);
         eprintln!("[DEBUG] Model output size: ~{} MB", output_size_mb);
+        
+        // 调试：如果输出为空或很小，打印前几个值
+        if len > 0 && len <= 20 {
+            if let Ok(values) = output.to_array_view::<f32>() {
+                let display_len = len.min(20);
+                eprintln!("[DEBUG] First {} output values: {:?}", display_len, &values.iter().take(display_len).collect::<Vec<_>>());
+            }
+        }
         
         if shape.len() != 3 {
             return Err(format!("Unexpected output shape: {:?}", shape));
