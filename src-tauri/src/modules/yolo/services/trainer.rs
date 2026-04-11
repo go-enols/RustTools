@@ -1,6 +1,9 @@
 use crate::modules::yolo::models::training::{TrainingMetrics, TrainingRequest, TrainingStatus};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
@@ -10,14 +13,34 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::{Duration, Instant};
 use tokio_stream::StreamExt;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainedModelInfo {
+    pub id: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub yolo_version: String,
+    pub model_size: String,
+    pub best_epoch: u32,
+    pub total_epochs: u32,
+    pub map50: f32,
+    pub map50_95: f32,
+    pub model_path: String,
+    pub created_at: String,
+}
+
 pub struct TrainerService {
     processes: Arc<RwLock<HashMap<String, TrainingHandle>>>,
+    trained_models: Arc<RwLock<Vec<TrainedModelInfo>>>,
 }
 
 struct TrainingHandle {
     status: TrainingStatus,
     stop_tx: Option<oneshot::Sender<()>>,
     model_path: Option<String>,
+    project_name: String,
+    project_path: String,
+    yolo_version: String,
+    total_epochs: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +83,75 @@ impl TrainerService {
     pub fn new() -> Self {
         Self {
             processes: Arc::new(RwLock::new(HashMap::new())),
+            trained_models: Arc::new(RwLock::new(Vec::new())),
         }
+    }
+    
+    fn get_models_dir() -> PathBuf {
+        let cache_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(|h| PathBuf::from(h).join(".cache").join("rust-tools").join("models"))
+            .unwrap_or_else(|_| PathBuf::from(".cache/rust-tools/models"));
+        cache_dir
+    }
+    
+    pub async fn save_trained_model(&self, model_info: TrainedModelInfo) -> Result<(), String> {
+        let models_dir = Self::get_models_dir();
+        fs::create_dir_all(&models_dir)
+            .map_err(|e| format!("Failed to create models directory: {}", e))?;
+        
+        let models_file = models_dir.join("trained_models.json");
+        let mut models = self.trained_models.write().await;
+        models.push(model_info.clone());
+        
+        let json = serde_json::to_string_pretty(&*models)
+            .map_err(|e| format!("Failed to serialize models: {}", e))?;
+        fs::write(&models_file, json)
+            .map_err(|e| format!("Failed to save models: {}", e))?;
+        
+        eprintln!("[Trainer] Saved trained model: {} to {:?}", model_info.project_name, models_file);
+        Ok(())
+    }
+    
+    pub async fn get_trained_models(&self) -> Result<Vec<TrainedModelInfo>, String> {
+        let models_dir = Self::get_models_dir();
+        let models_file = models_dir.join("trained_models.json");
+        
+        if !models_file.exists() {
+            eprintln!("[Trainer] No trained models file found");
+            return Ok(Vec::new());
+        }
+        
+        let content = fs::read_to_string(&models_file)
+            .map_err(|e| format!("Failed to read models file: {}", e))?;
+        
+        let models: Vec<TrainedModelInfo> = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse models: {}", e))?;
+        
+        *self.trained_models.write().await = models.clone();
+        eprintln!("[Trainer] Loaded {} trained models", models.len());
+        Ok(models)
+    }
+    
+    pub async fn delete_trained_model(&self, model_id: &str) -> Result<(), String> {
+        let models_dir = Self::get_models_dir();
+        let models_file = models_dir.join("trained_models.json");
+        
+        let mut models = self.trained_models.write().await;
+        let initial_len = models.len();
+        models.retain(|m| m.id != model_id);
+        
+        if models.len() == initial_len {
+            return Err("Model not found".to_string());
+        }
+        
+        let json = serde_json::to_string_pretty(&*models)
+            .map_err(|e| format!("Failed to serialize models: {}", e))?;
+        fs::write(&models_file, json)
+            .map_err(|e| format!("Failed to save models: {}", e))?;
+        
+        eprintln!("[Trainer] Deleted trained model: {}", model_id);
+        Ok(())
     }
 
     fn generate_id() -> String {
@@ -224,7 +315,13 @@ impl TrainerService {
         eprintln!("[Trainer] Start command sent successfully");
 
         let (stop_tx, stop_rx) = oneshot::channel::<()>();
-
+        
+        // Extract project name from path
+        let project_name = std::path::Path::new(&project_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        
         let handle = TrainingHandle {
             status: TrainingStatus {
                 running: true,
@@ -237,6 +334,10 @@ impl TrainerService {
             },
             stop_tx: Some(stop_tx),
             model_path: None,
+            project_name: project_name.clone(),
+            project_path: project_path.clone(),
+            yolo_version: request.base_model.clone(),
+            total_epochs: request.epochs,
         };
 
         self.processes
@@ -266,6 +367,8 @@ impl TrainerService {
 
         let process_id = training_id.clone();
         let processes = Arc::clone(&self.processes);
+        let trained_models = Arc::clone(&self.trained_models);
+        let trainer_service = Arc::new(self.clone());
         let mut tcp_reader = BufReader::new(tcp_stream).lines();
         let mut stop_rx = stop_rx;
         let mut stop_requested = false;
@@ -476,14 +579,67 @@ impl TrainerService {
                                                 }
                                             }
                                             eprintln!("[Trainer] Training complete event received");
-                                            let model_path = processes
-                                                .read()
-                                                .await
-                                                .get(&process_id)
-                                                .and_then(|h| h.model_path.clone());
+                                            
+                                            // Get training info - extract all values before dropping the lock
+                                            let model_path_clone: Option<String>;
+                                            let project_name_clone: String;
+                                            let project_path_clone: String;
+                                            let yolo_version_clone: String;
+                                            let total_epochs_val: u32;
+                                            let best_epoch_val: u32;
+                                            let map50_val: f32;
+                                            let map50_95_val: f32;
+                                            
+                                            {
+                                                let guard = processes.read().await;
+                                                if let Some(h) = guard.get(&process_id) {
+                                                    model_path_clone = h.model_path.clone();
+                                                    project_name_clone = h.project_name.clone();
+                                                    project_path_clone = h.project_path.clone();
+                                                    yolo_version_clone = h.yolo_version.clone();
+                                                    total_epochs_val = h.total_epochs;
+                                                    best_epoch_val = h.status.epoch;
+                                                    map50_val = h.status.metrics.map50;
+                                                    map50_95_val = h.status.metrics.map50_95;
+                                                } else {
+                                                    model_path_clone = None;
+                                                    project_name_clone = String::new();
+                                                    project_path_clone = String::new();
+                                                    yolo_version_clone = String::new();
+                                                    total_epochs_val = 0;
+                                                    best_epoch_val = 0;
+                                                    map50_val = 0.0;
+                                                    map50_95_val = 0.0;
+                                                }
+                                            }
+                                            
+                                            // Save trained model if we have a model path
+                                            if let Some(ref model_path_str) = model_path_clone {
+                                                let model_info = TrainedModelInfo {
+                                                    id: rand::random::<u64>().to_string(),
+                                                    project_name: project_name_clone.clone(),
+                                                    project_path: project_path_clone.clone(),
+                                                    yolo_version: yolo_version_clone.clone(),
+                                                    model_size: "0".to_string(),
+                                                    best_epoch: best_epoch_val,
+                                                    total_epochs: total_epochs_val,
+                                                    map50: map50_val,
+                                                    map50_95: map50_95_val,
+                                                    model_path: model_path_str.clone(),
+                                                    created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                                                };
+                                                
+                                                let trainer_clone = trainer_service.clone();
+                                                tokio::spawn(async move {
+                                                    if let Err(e) = trainer_clone.save_trained_model(model_info).await {
+                                                        eprintln!("[Trainer] Failed to save trained model: {}", e);
+                                                    }
+                                                });
+                                            }
+                                            
                                             let _ = event_tx.send(TrainingEvent::Complete {
                                                 training_id: process_id.clone(),
-                                                model_path,
+                                                model_path: model_path_clone,
                                             });
                                             terminal_event_sent = true;
                                             break;
@@ -686,9 +842,31 @@ impl TrainerService {
 
         let model_path = cache_dir.join(model_name);
 
-        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
-            Ok((true, Some(model_path.to_string_lossy().to_string())))
+        eprintln!("[Model] 检查模型是否存在: {}", model_name);
+        eprintln!("[Model] 模型路径: {:?}", model_path);
+        eprintln!("[Model] 缓存目录存在: {}", cache_dir.exists());
+
+        if model_path.exists() {
+            let metadata = model_path.metadata();
+            match metadata {
+                Ok(m) => {
+                    let size = m.len();
+                    eprintln!("[Model] 模型文件存在, 大小: {} bytes ({} MB)", size, size / 1024 / 1024);
+                    if size > 1_000_000 {
+                        eprintln!("[Model] 模型有效，返回路径");
+                        Ok((true, Some(model_path.to_string_lossy().to_string())))
+                    } else {
+                        eprintln!("[Model] 模型文件过小 (< 1MB)，视为无效");
+                        Ok((false, None))
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[Model] 读取模型文件元数据失败: {}", e);
+                    Ok((false, None))
+                }
+            }
         } else {
+            eprintln!("[Model] 模型文件不存在");
             Ok((false, None))
         }
     }
@@ -700,64 +878,119 @@ impl TrainerService {
     ) -> Result<String, String> {
         use std::path::PathBuf;
 
-        let download_urls = [
-            format!(
-                "https://mirror.ghproxy.com/https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
-                model_name
-            ),
-            format!(
-                "https://hf-mirror.com/ultralytics/assets/releases/download/v0.0.0/{}",
-                model_name
-            ),
-            format!(
+        eprintln!("[Download] 开始下载模型: {}", model_name);
+
+        // 根据模型名称确定对应的 HuggingFace 仓库
+        // 不同版本的 YOLO 存储在不同的仓库中
+        // 分类、分割等变体模型通常也在同一仓库
+        let (repo_owner, repo_name) = if model_name.starts_with("yolo26") {
+            ("Ultralytics", "YOLO26")
+        } else if model_name.starts_with("yolo12") {
+            ("Ultralytics", "YOLO12")
+        } else if model_name.starts_with("yolo11") {
+            ("Ultralytics", "YOLO11")
+        } else if model_name.starts_with("yolo10") || model_name.starts_with("yolov10") {
+            ("Ultralytics", "YOLOv10")
+        } else if model_name.starts_with("yolov9") {
+            ("WongKinYiu", "yolov9")
+        } else if model_name.starts_with("yolov6") {
+            ("meituan", "YOLOv6")
+        } else if model_name.starts_with("yolov8") {
+            ("Ultralytics", "assets")  // YOLOv8 在 assets 仓库
+        } else if model_name.starts_with("yolov5") {
+            ("Ultralytics", "assets")  // YOLOv5 在 assets 仓库
+        } else {
+            // 默认使用 assets 仓库
+            ("Ultralytics", "assets")
+        };
+
+        // 模型下载镜像源（按优先级排序）
+        // 1. HuggingFace 官方地址
+        // 2. HuggingFace 镜像
+        // 3. GitHub 直连
+        let mut download_urls = Vec::new();
+        
+        // 镜像1：HuggingFace 官方（推荐，速度快且稳定）
+        download_urls.push(format!(
+            "https://huggingface.co/{}/{}/resolve/main/{}",
+            repo_owner, repo_name, model_name
+        ));
+        
+        // 镜像2：hf-mirror（国内加速）
+        download_urls.push(format!(
+            "https://hf-mirror.com/{}/{}/resolve/main/{}",
+            repo_owner, repo_name, model_name
+        ));
+        
+        // 镜像3：GitHub 官方 releases（仅适用于 assets 仓库中的模型）
+        if repo_name == "assets" {
+            download_urls.push(format!(
                 "https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
                 model_name
-            ),
-        ];
+            ));
+        }
+
+        eprintln!("[Download] 使用仓库: {}/{}", repo_owner, repo_name);
 
         let cache_dir = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .map(|h| PathBuf::from(h).join(".cache").join("ultralytics"))
             .unwrap_or_else(|_| PathBuf::from(".cache/ultralytics"));
 
+        eprintln!("[Download] 缓存目录: {:?}", cache_dir);
+
         let model_path = cache_dir.join(model_name);
 
-        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
-            progress_callback(format!("模型已在缓存中: {}", model_path.display()));
-            return Ok(model_path.to_string_lossy().to_string());
+        // Check if already downloaded
+        if model_path.exists() {
+            if let Ok(metadata) = model_path.metadata() {
+                let size = metadata.len();
+                if size > 1_000_000 {
+                    eprintln!("[Download] 模型已在缓存中: {} ({} MB)", model_path.display(), size / 1024 / 1024);
+                    progress_callback(format!("模型已在缓存中: {}", model_path.display()));
+                    return Ok(model_path.to_string_lossy().to_string());
+                }
+            }
         }
 
         if let Some(parent) = model_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+            eprintln!("[Download] 已创建缓存目录: {:?}", parent);
         }
 
         progress_callback(format!("正在下载模型 {}...", model_name));
 
         let mut last_error = String::new();
-        for url in &download_urls {
-            progress_callback(format!("尝试从 {}", url));
+        for (index, url) in download_urls.iter().enumerate() {
+            progress_callback(format!("尝试从镜像 {} 下载...", index + 1));
+            eprintln!("[Download] 尝试 {}: {}", index + 1, url);
 
             match self
                 .download_file_with_progress(url, &model_path, |msg| progress_callback(msg))
                 .await
             {
                 Ok(_) => {
+                    eprintln!("[Download] 下载成功，正在验证...");
                     progress_callback("正在验证模型...".to_string());
                     if self.validate_model_file(&model_path).await {
+                        eprintln!("[Download] 模型验证通过: {}", model_path.display());
                         progress_callback(format!("模型已保存到: {}", model_path.display()));
                         return Ok(model_path.to_string_lossy().to_string());
                     } else {
                         last_error = "模型验证失败".to_string();
+                        eprintln!("[Download] 模型验证失败，删除文件");
                         let _ = std::fs::remove_file(&model_path);
                     }
                 }
                 Err(e) => {
-                    last_error = e;
+                    last_error = e.clone();
+                    eprintln!("[Download] 下载失败: {}", e);
                 }
             }
         }
 
+        eprintln!("[Download] 所有镜像下载失败");
         Err(format!("下载失败: {}", last_error))
     }
 
@@ -772,28 +1005,39 @@ impl TrainerService {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
-            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+            .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
 
         let response = client
             .get(url)
             .send()
             .await
-            .map_err(|e| format!("网络请求失败: {}", e))?;
+            .map_err(|e| format!("网络连接失败: {}", e))?;
 
-        if !response.status().is_success() {
-            return Err(format!("HTTP错误: {}", response.status()));
+        let status = response.status();
+        
+        // 处理HTTP错误状态码
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(format!("模型文件不存在 (404)"))
+        }
+        
+        if status == reqwest::StatusCode::FORBIDDEN {
+            return Err(format!("访问被拒绝 (403)"))
+        }
+        
+        if !status.is_success() {
+            return Err(format!("HTTP错误 ({}): 服务器返回错误状态", status));
         }
 
         let total_size = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
         let mut file = tokio::fs::File::create(path)
             .await
-            .map_err(|e| format!("Failed to create file: {}", e))?;
+            .map_err(|e| format!("创建文件失败: {}", e))?;
 
         let mut stream = response.bytes_stream();
 
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| format!("下载出错: {}", e))?;
+            let chunk = chunk_result.map_err(|e| format!("下载中断: {}", e))?;
             tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
                 .await
                 .map_err(|e| format!("写入文件失败: {}", e))?;
@@ -839,6 +1083,15 @@ impl TrainerService {
             format!("{:.1} KB", bytes as f64 / KB as f64)
         } else {
             format!("{} B", bytes)
+        }
+    }
+}
+
+impl Clone for TrainerService {
+    fn clone(&self) -> Self {
+        Self {
+            processes: Arc::clone(&self.processes),
+            trained_models: Arc::clone(&self.trained_models),
         }
     }
 }

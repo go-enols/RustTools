@@ -1,6 +1,7 @@
 use crate::modules::yolo::models::training::{AnnotationBox, VideoInferenceConfig};
 use crate::modules::yolo::services::video::VideoInfo;
-use crate::modules::yolo::services::VideoService;
+use crate::modules::yolo::services::{VideoService, VideoInferenceService};
+use crate::modules::yolo::services::video_inference::VideoInfo as RustVideoInfo;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -29,7 +30,7 @@ impl<T> CommandResponse<T> {
     }
 }
 
-/// Load video and return metadata
+/// Load video and return metadata (uses existing VideoService)
 #[tauri::command]
 pub async fn video_load(
     state: State<'_, Arc<VideoService>>,
@@ -41,7 +42,7 @@ pub async fn video_load(
     }
 }
 
-/// Start video inference
+/// Start video inference using Python (existing implementation)
 #[tauri::command]
 pub async fn video_inference_start(
     app: AppHandle,
@@ -92,7 +93,74 @@ pub async fn video_inference_start(
     Ok(CommandResponse::ok(session_id_return))
 }
 
-/// Stop video inference
+/// Start video inference using pure Rust (NEW - optimized)
+#[tauri::command]
+pub async fn rust_video_inference_start(
+    app: AppHandle,
+    state: State<'_, Arc<VideoInferenceService>>,
+    config: VideoInferenceConfig,
+) -> Result<CommandResponse<String>, String> {
+    let session_id = format!("rust_vid_{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis());
+
+    let session_id_clone = session_id.clone();
+    let session_id_clone2 = session_id.clone();
+    let state_arc = Arc::clone(&state);
+    let session_id_return = session_id.clone();
+
+    eprintln!("[RustVideoInference] Starting session: {}", session_id);
+
+    // Spawn inference in background
+    tokio::spawn(async move {
+        let app_clone = app.clone();
+        let app_clone_for_callback = app.clone();
+        let callback = move |frame_idx: u32, boxes: Vec<AnnotationBox>| {
+            let event = serde_json::json!({
+                "session_id": session_id_clone,
+                "frame": frame_idx,
+                "boxes": boxes,
+            });
+            let _ = app_clone_for_callback.emit("rust-video-inference-frame", event);
+        };
+
+        match state_arc.run_inference(&session_id, &config, callback).await {
+            Ok(results) => {
+                let _ = app_clone.emit("rust-video-inference-complete", serde_json::json!({
+                    "session_id": session_id_clone2,
+                    "success": true,
+                    "frames": results.len(),
+                    "results_path": format!("{}/inference_results.json", config.output_dir),
+                }));
+            }
+            Err(e) => {
+                eprintln!("[RustVideoInference] Error: {}", e);
+                let _ = app_clone.emit("rust-video-inference-complete", serde_json::json!({
+                    "session_id": session_id_clone2,
+                    "success": false,
+                    "error": e,
+                }));
+            }
+        }
+    });
+
+    Ok(CommandResponse::ok(session_id_return))
+}
+
+/// Stop Rust video inference
+#[tauri::command]
+pub async fn rust_video_inference_stop(
+    state: State<'_, Arc<VideoInferenceService>>,
+    session_id: Option<String>,
+) -> Result<CommandResponse<()>, String> {
+    if let Some(sid) = session_id {
+        state.stop_inference(&sid).await;
+    }
+    Ok(CommandResponse::ok(()))
+}
+
+/// Stop video inference (Python)
 #[tauri::command]
 pub async fn video_inference_stop(
     state: State<'_, Arc<VideoService>>,

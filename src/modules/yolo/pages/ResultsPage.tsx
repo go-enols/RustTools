@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Search,
   Trash2,
@@ -11,10 +11,16 @@ import { useTrainingStore, TrainedModel } from '../../../core/stores/trainingSto
 import ModelConvertModal from '../components/ModelConvertModal';
 
 export default function ResultsPage() {
-  const { trainedModels, removeTrainedModel } = useTrainingStore();
+  const { trainedModels, removeTrainedModel, loadTrainedModels } = useTrainingStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedModel, setSelectedModel] = useState<TrainedModel | null>(null);
   const [showConvert, setShowConvert] = useState(false);
+
+  // 页面加载时获取训练结果列表
+  useEffect(() => {
+    console.log('[ResultsPage] Loading trained models...');
+    loadTrainedModels();
+  }, [loadTrainedModels]);
 
   const filteredModels = trainedModels.filter((m) =>
     m.projectName.toLowerCase().includes(searchQuery.toLowerCase())

@@ -94,9 +94,13 @@ export default function NewProjectModal({ onClose, onCreated }: NewProjectModalP
               onChange={(e) => setYoloVersion(e.target.value)}
               style={{ width: '100%' }}
             >
-              <option value="yolo5">YOLOv5</option>
-              <option value="yolo8">YOLOv8</option>
+              <option value="yolo26">YOLO26 (最新)</option>
+              <option value="yolo12">YOLO12</option>
               <option value="yolo11">YOLO11</option>
+              <option value="yolo10">YOLOv10</option>
+              <option value="yolov9">YOLOv9</option>
+              <option value="yolov8">YOLOv8</option>
+              <option value="yolov5">YOLOv5</option>
             </select>
           </div>
 

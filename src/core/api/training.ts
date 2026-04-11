@@ -99,6 +99,9 @@ export interface PythonEnvInfo {
   python_version: string | null;
   torch_exists: boolean;
   torch_version: string | null;
+  torchaudio_exists: boolean;
+  cuda_available: boolean;
+  cuda_version: string | null;
   ultralytics_exists: boolean;
   ultralytics_version: string | null;
   yolo_command_exists: boolean;
@@ -114,10 +117,11 @@ export interface InstallInstructions {
 
 /**
  * Check Python environment (Python, PyTorch, Ultralytics)
+ * @param forceRefresh - If true, bypass cache and perform fresh check
  */
-export async function checkPythonEnv(): Promise<ApiResponse<PythonEnvInfo>> {
+export async function checkPythonEnv(forceRefresh: boolean = false): Promise<ApiResponse<PythonEnvInfo> & { from_cache?: boolean }> {
   try {
-    return await invoke<ApiResponse<PythonEnvInfo>>('check_python_env');
+    return await invoke<ApiResponse<PythonEnvInfo> & { from_cache?: boolean }>('check_python_env', { forceRefresh });
   } catch (error) {
     console.error('[API] checkPythonEnv error:', error);
     return { success: false, error: String(error) };
@@ -125,11 +129,35 @@ export async function checkPythonEnv(): Promise<ApiResponse<PythonEnvInfo>> {
 }
 
 /**
+ * Get cached Python environment info without performing check
+ */
+export async function getCachedPythonEnv(): Promise<ApiResponse<PythonEnvInfo> & { from_cache?: boolean }> {
+  try {
+    return await invoke<ApiResponse<PythonEnvInfo> & { from_cache?: boolean }>('get_cached_python_env');
+  } catch (error) {
+    console.error('[API] getCachedPythonEnv error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Clear Python environment cache
+ */
+export async function clearPythonEnvCache(): Promise<ApiResponse<void>> {
+  try {
+    return await invoke<ApiResponse<void>>('clear_python_env_cache');
+  } catch (error) {
+    console.error('[API] clearPythonEnvCache error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
  * Install Python dependencies (torch, ultralytics)
  */
-export async function installPythonDeps(useMirror: boolean = true): Promise<ApiResponse<{ success: boolean; message: string }>> {
+export async function installPythonDeps(useMirror: boolean = true, cpuOnly: boolean = false): Promise<ApiResponse<{ success: boolean; message: string }>> {
   try {
-    return await invoke<ApiResponse<{ success: boolean; message: string }>>('install_python_deps', { useMirror });
+    return await invoke<ApiResponse<{ success: boolean; message: string }>>('install_python_deps', { useMirror, cpuOnly });
   } catch (error) {
     console.error('[API] installPythonDeps error:', error);
     return { success: false, error: String(error) };

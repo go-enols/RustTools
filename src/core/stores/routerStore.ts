@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type PageType = 'hub' | 'yolo' | 'annotation' | 'training' | 'results' | 'video' | 'device' | 'tools' | 'settings';
+export type PageType = 'hub' | 'yolo' | 'annotation' | 'training' | 'results' | 'video' | 'desktop' | 'device' | 'tools' | 'settings';
 
 interface RouterState {
   // 当前活动模块 ID

@@ -63,6 +63,8 @@ export {
   checkModel,
   downloadModel,
   checkPythonEnv,
+  getCachedPythonEnv,
+  clearPythonEnvCache,
   installPythonDeps,
   getInstallInstructions,
   type ModelCheckResult,
@@ -86,10 +88,20 @@ export {
   loadVideo,
   startVideoInference,
   stopVideoInference,
+  startRustVideoInference,
+  stopRustVideoInference,
   captureScreenshot,
   extractFrames,
-  getInferenceResults,
+  getVideoInferenceResults,
 } from './video';
+
+// Desktop capture inference
+export {
+  startDesktopCapture,
+  stopDesktopCapture,
+  type DesktopCaptureConfig,
+  type DesktopDetection,
+} from './desktop';
 
 // Device
 export { getDevices, getDeviceStats, setDefaultDevice } from './device';

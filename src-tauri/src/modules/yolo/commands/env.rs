@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+// Cache for Python environment info
+static PYTHON_ENV_CACHE: Lazy<Mutex<Option<PythonEnvInfo>>> = Lazy::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PythonEnvInfo {
@@ -20,11 +25,27 @@ pub struct EnvCheckResponse {
     pub success: bool,
     pub data: Option<PythonEnvInfo>,
     pub error: Option<String>,
+    pub from_cache: bool,
 }
 
-/// Check Python environment status
+/// Check Python environment status (with caching)
 #[tauri::command]
-pub async fn check_python_env() -> Result<EnvCheckResponse, String> {
+pub async fn check_python_env(force_refresh: bool) -> Result<EnvCheckResponse, String> {
+    // If not forcing refresh, check cache first
+    if !force_refresh {
+        if let Ok(cache) = PYTHON_ENV_CACHE.lock() {
+            if let Some(ref cached_info) = *cache {
+                return Ok(EnvCheckResponse {
+                    success: true,
+                    data: Some(cached_info.clone()),
+                    error: None,
+                    from_cache: true,
+                });
+            }
+        }
+    }
+
+    // Perform environment check
     let python_version = check_python_version();
     let torch_info = check_torch();
     let torchaudio_info = check_torchaudio();
@@ -45,10 +66,54 @@ pub async fn check_python_env() -> Result<EnvCheckResponse, String> {
         yolo_command_exists: yolo_exists,
     };
 
+    // Update cache
+    if let Ok(mut cache) = PYTHON_ENV_CACHE.lock() {
+        *cache = Some(env_info.clone());
+    }
+
     Ok(EnvCheckResponse {
         success: true,
         data: Some(env_info),
         error: None,
+        from_cache: false,
+    })
+}
+
+/// Get cached Python environment info without performing check
+#[tauri::command]
+pub fn get_cached_python_env() -> EnvCheckResponse {
+    if let Ok(cache) = PYTHON_ENV_CACHE.lock() {
+        if let Some(ref cached_info) = *cache {
+            return EnvCheckResponse {
+                success: true,
+                data: Some(cached_info.clone()),
+                error: None,
+                from_cache: true,
+            };
+        }
+    }
+
+    EnvCheckResponse {
+        success: true,
+        data: None,
+        error: None,
+        from_cache: false,
+    }
+}
+
+/// Clear Python environment cache (force recheck)
+#[tauri::command]
+pub fn clear_python_env_cache() -> Result<EnvCheckResponse, String> {
+    if let Ok(mut cache) = PYTHON_ENV_CACHE.lock() {
+        *cache = None;
+    }
+
+    // Return current cached state (should be None now)
+    Ok(EnvCheckResponse {
+        success: true,
+        data: None,
+        error: None,
+        from_cache: false,
     })
 }
 
@@ -274,7 +339,7 @@ pub async fn install_python_deps(
 
     // Verify installation
     eprintln!("[Env] Verifying installation...");
-    let final_check = check_python_env().await?;
+    let final_check = check_python_env(true).await?;
 
     if let Some(info) = final_check.data {
         if info.torch_exists && info.ultralytics_exists {

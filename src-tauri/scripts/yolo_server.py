@@ -54,6 +54,7 @@ class TrainerState:
     def __init__(self):
         self.running = False
         self.model = None
+        self.project_path = None
         self.stop_event = threading.Event()
         self.current_epoch = 0
         self.total_epochs = 0
@@ -325,6 +326,11 @@ def _on_fit_epoch_end(trainer):
         _state.current_metrics = epoch_data
         log(f"Epoch {_state.current_epoch}/{_state.total_epochs} completed")
         send_event("progress", epoch_data)
+        
+        # Check if this is the final epoch (all epochs completed)
+        if _state.current_epoch >= _state.total_epochs:
+            print("DEBUG: All epochs completed, calling _on_train_end", flush=True, file=sys.stderr)
+            _on_train_end(trainer)
     except Exception as e:
         print(f"DEBUG: Failed to build epoch data: {e}", flush=True, file=sys.stderr)
 
@@ -340,25 +346,52 @@ def _on_val_end(trainer):
 def _on_train_end(trainer):
     """Called when training ends."""
     global _state
+    print("DEBUG: _on_train_end called", flush=True, file=sys.stderr)
     _state.running = False
     _state.heartbeat_stop.set()
     log("Training completed")
 
     best_model = None
-    save_dir = getattr(trainer, 'save_dir', None)
+    # Try to get save_dir from trainer if available
+    if trainer is not None:
+        save_dir = getattr(trainer, 'save_dir', None)
+        print(f"DEBUG: trainer.save_dir = {save_dir}", flush=True, file=sys.stderr)
+    else:
+        print("DEBUG: trainer is None, using fallback", flush=True, file=sys.stderr)
+        # Fallback: try to find the most recent training output directory
+        save_dir = None
+        project_path = getattr(_state, 'project_path', None)
+        print(f"DEBUG: project_path = {project_path}", flush=True, file=sys.stderr)
+        if project_path:
+            project_path = Path(project_path)
+            # Look for the most recent train directory
+            for exp_dir in sorted(project_path.glob("train*"), reverse=True):
+                if exp_dir.is_dir():
+                    save_dir = str(exp_dir)
+                    print(f"DEBUG: Found train dir: {save_dir}", flush=True, file=sys.stderr)
+                    break
+    
     if save_dir:
         best_path = Path(save_dir) / "weights" / "best.pt"
+        print(f"DEBUG: Checking best.pt at {best_path}, exists={best_path.exists()}", flush=True, file=sys.stderr)
         if best_path.exists():
             best_model = str(best_path)
+            print(f"DEBUG: Found best model at {best_model}", flush=True, file=sys.stderr)
+        else:
+            print(f"DEBUG: best.pt does not exist", flush=True, file=sys.stderr)
+    else:
+        print("DEBUG: save_dir is None", flush=True, file=sys.stderr)
 
     final_metrics = _state.current_metrics.copy()
     final_metrics["model_path"] = best_model
 
+    print(f"DEBUG: Sending complete event with model_path={best_model}", flush=True, file=sys.stderr)
     send_event("complete", {
         "success": True,
         "model_path": best_model,
         "final_metrics": final_metrics,
     })
+    print("DEBUG: complete event sent", flush=True, file=sys.stderr)
 
 
 def _on_model_save(trainer):
@@ -427,6 +460,9 @@ def main():
             if not project_path:
                 send_event("error", error="project_path is required")
                 return
+            
+            # Save project_path for fallback in _on_train_end
+            _state.project_path = project_path
 
             data_yaml = Path(project_path) / "data.yaml"
             if not data_yaml.exists():
@@ -523,6 +559,11 @@ def main():
 
                     print("DEBUG: model.train() returned", flush=True, file=sys.stderr)
                     log(f"Training finished: {results}")
+                    
+                    # Ensure complete event is sent even if YOLO callback didn't fire
+                    print("DEBUG: Calling _on_train_end to ensure complete event", flush=True, file=sys.stderr)
+                    trainer = getattr(results, 'trainer', None) if results else None
+                    _on_train_end(trainer)
 
                 except Exception as e:
                     _state.running = False

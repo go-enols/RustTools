@@ -1,15 +1,29 @@
 /**
- * Video API - Video inference
+ * Video API - Video inference operations
  */
 import { invoke } from '@tauri-apps/api/core';
-import type { ApiResponse, VideoInferenceConfig, AnnotationBox } from './types';
+import type { ApiResponse } from './types';
+import type { VideoInferenceConfig } from './types';
+
+export interface VideoMetadata {
+  duration: number;
+  fps: number;
+  frames: number;
+  width: number;
+  height: number;
+}
+
+export interface InferenceSession {
+  inference_id: string;
+  status: 'running' | 'completed' | 'failed';
+}
 
 /**
- * Load video for inference
+ * Load video and get metadata
  */
-export async function loadVideo(videoPath: string): Promise<ApiResponse<{ duration: number; fps: number; frames: number }>> {
+export async function loadVideo(videoPath: string): Promise<ApiResponse<VideoMetadata>> {
   try {
-    return await invoke<ApiResponse<{ duration: number; fps: number; frames: number }>>('video_load', { videoPath });
+    return await invoke('video_load', { videoPath });
   } catch (error) {
     console.error('[API] loadVideo error:', error);
     return { success: false, error: String(error) };
@@ -17,17 +31,49 @@ export async function loadVideo(videoPath: string): Promise<ApiResponse<{ durati
 }
 
 /**
- * Start video inference
+ * Start video inference (Python backend)
  */
 export async function startVideoInference(
-  config: VideoInferenceConfig,
-  _onFrame?: (frameIndex: number, annotations: AnnotationBox[]) => void,
-  _onProgress?: (progress: number) => void
-): Promise<ApiResponse<{ inference_id: string }>> {
+  config: VideoInferenceConfig
+): Promise<ApiResponse<InferenceSession>> {
   try {
-    return await invoke<ApiResponse<{ inference_id: string }>>('video_inference_start', { config });
+    const result = await invoke<ApiResponse<string>>('video_inference_start', { config });
+    if (result.success && result.data) {
+      return {
+        success: true,
+        data: {
+          inference_id: result.data,
+          status: 'running',
+        },
+      };
+    }
+    return { success: false, error: result.error };
   } catch (error) {
     console.error('[API] startVideoInference error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
+ * Start video inference using pure Rust (NEW - optimized)
+ */
+export async function startRustVideoInference(
+  config: VideoInferenceConfig
+): Promise<ApiResponse<InferenceSession>> {
+  try {
+    const result = await invoke<ApiResponse<string>>('rust_video_inference_start', { config });
+    if (result.success && result.data) {
+      return {
+        success: true,
+        data: {
+          inference_id: result.data,
+          status: 'running',
+        },
+      };
+    }
+    return { success: false, error: result.error };
+  } catch (error) {
+    console.error('[API] startRustVideoInference error:', error);
     return { success: false, error: String(error) };
   }
 }
@@ -45,11 +91,29 @@ export async function stopVideoInference(sessionId?: string): Promise<ApiRespons
 }
 
 /**
+ * Stop Rust video inference
+ */
+export async function stopRustVideoInference(sessionId?: string): Promise<ApiResponse<void>> {
+  try {
+    return await invoke<ApiResponse<void>>('rust_video_inference_stop', { sessionId });
+  } catch (error) {
+    console.error('[API] stopRustVideoInference error:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
  * Capture screenshot from video
  */
-export async function captureScreenshot(videoPath: string, timestampMs: number): Promise<ApiResponse<{ screenshot_path: string }>> {
+export async function captureScreenshot(
+  videoPath: string,
+  timestampMs: number
+): Promise<ApiResponse<string>> {
   try {
-    return await invoke<ApiResponse<{ screenshot_path: string }>>('video_capture_screenshot', { videoPath, timestampMs });
+    return await invoke<ApiResponse<string>>('video_capture_screenshot', {
+      videoPath,
+      timestampMs,
+    });
   } catch (error) {
     console.error('[API] captureScreenshot error:', error);
     return { success: false, error: String(error) };
@@ -59,9 +123,15 @@ export async function captureScreenshot(videoPath: string, timestampMs: number):
 /**
  * Extract frames from video
  */
-export async function extractFrames(videoPath: string, intervalMs: number): Promise<ApiResponse<{ frames: string[] }>> {
+export async function extractFrames(
+  videoPath: string,
+  intervalMs: number
+): Promise<ApiResponse<string[]>> {
   try {
-    return await invoke<ApiResponse<{ frames: string[] }>>('video_extract_frames', { videoPath, intervalMs });
+    return await invoke<ApiResponse<string[]>>('video_extract_frames', {
+      videoPath,
+      intervalMs,
+    });
   } catch (error) {
     console.error('[API] extractFrames error:', error);
     return { success: false, error: String(error) };
@@ -69,13 +139,17 @@ export async function extractFrames(videoPath: string, intervalMs: number): Prom
 }
 
 /**
- * Get inference results/screenshots
+ * Get inference results
  */
-export async function getInferenceResults(inferenceId: string): Promise<ApiResponse<{ screenshots: string[]; annotations: AnnotationBox[][] }>> {
+export async function getVideoInferenceResults(
+  inferenceId: string
+): Promise<ApiResponse<unknown>> {
   try {
-    return await invoke<ApiResponse<{ screenshots: string[]; annotations: AnnotationBox[][] }>>('video_inference_results', { inferenceId });
+    return await invoke<ApiResponse<unknown>>('video_inference_results', {
+      inferenceId,
+    });
   } catch (error) {
-    console.error('[API] getInferenceResults error:', error);
+    console.error('[API] getVideoInferenceResults error:', error);
     return { success: false, error: String(error) };
   }
 }

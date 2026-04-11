@@ -475,6 +475,7 @@ function getPageLabel(page: PageType): string {
     training: '训练',
     results: '结果',
     video: '视频',
+    desktop: '桌面',
     device: '设备',
     tools: '工具',
     settings: '设置',

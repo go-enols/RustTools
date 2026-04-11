@@ -279,22 +279,22 @@ export function ConfirmModal({
 
 interface DownloadModalProps {
   isOpen: boolean;
+  onClose?: () => void;
   title: string;
-  message: string;
+  message?: string;
   progress?: string;
   error?: string;
-  downloadUrl?: string;
-  onManualDownload?: () => void;
+  onRetry?: () => void;
 }
 
 export function DownloadModal({
   isOpen,
+  onClose,
   title,
   message,
   progress,
   error,
-  downloadUrl,
-  onManualDownload,
+  onRetry,
 }: DownloadModalProps) {
   useEffect(() => {
     if (isOpen) {
@@ -312,28 +312,61 @@ export function DownloadModal({
       <div className="download-modal-content">
         <div className="download-modal-header">
           <h3 className="download-modal-title">{title}</h3>
+          <button
+            className="download-modal-close"
+            onClick={onClose}
+            title="关闭"
+          >
+            ✕
+          </button>
         </div>
         <div className="download-modal-body">
-          <p className="download-message">{message}</p>
+          {message && <p className="download-message">{message}</p>}
 
-          {progress && (
-            <div className="download-progress">
-              <div className="download-spinner" />
-              <span>{progress}</span>
+          {progress && !error && (
+            <div className="download-progress-section">
+              <div className="download-spinner-wrapper">
+                <div className="download-spinner" />
+                <div className="download-spinner-text">正在下载...</div>
+              </div>
+              <div className="download-progress-text">{progress}</div>
             </div>
           )}
 
           {error && (
-            <div className="download-error">
-              <p>{error}</p>
-              {downloadUrl && (
-                <button
-                  className="btn btn-primary download-manual-btn"
-                  onClick={onManualDownload}
-                >
-                  前往下载
-                </button>
-              )}
+            <div className="download-error-section">
+              <div className="download-error-icon">⚠️</div>
+              <div className="download-error-content">
+                <p className="download-error-title">下载失败</p>
+                <p className="download-error-message">{error}</p>
+              </div>
+              <div className="download-error-actions">
+                {onRetry && (
+                  <button
+                    className="download-btn download-btn-retry"
+                    onClick={onRetry}
+                  >
+                    🔄 重试
+                  </button>
+                )}
+                {onClose && (
+                  <button
+                    className="download-btn download-btn-close"
+                    onClick={onClose}
+                  >
+                    关闭
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!error && !progress && message && (
+            <div className="download-waiting">
+              <div className="download-spinner-wrapper">
+                <div className="download-spinner" />
+                <div className="download-spinner-text">准备中...</div>
+              </div>
             </div>
           )}
         </div>
@@ -342,90 +375,170 @@ export function DownloadModal({
         .download-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.7);
+          background: rgba(0, 0, 0, 0.75);
           display: flex;
           align-items: center;
           justify-content: center;
           z-index: 2000;
-          animation: modalFadeIn 0.15s ease-out;
+          animation: modalFadeIn 0.2s ease-out;
         }
         .download-modal-content {
           background: var(--bg-elevated);
           border: 1px solid var(--border-default);
-          border-radius: 12px;
-          min-width: 400px;
-          max-width: 500px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-          animation: modalSlideIn 0.15s ease-out;
+          border-radius: 16px;
+          width: 420px;
+          max-width: 90vw;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          animation: modalSlideIn 0.2s ease-out;
+          overflow: hidden;
         }
         .download-modal-header {
+          padding: 20px 24px;
+          border-bottom: 1px solid var(--border-subtle);
+          background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-secondary) 100%);
+        }
+        .download-modal-title-wrapper {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 16px 20px;
-          border-bottom: 1px solid var(--border-default);
         }
         .download-modal-title {
           margin: 0;
-          font-size: 16px;
+          font-size: 18px;
           font-weight: 600;
           color: var(--text-primary);
         }
+        .download-modal-close {
+          background: none;
+          border: none;
+          padding: 8px;
+          cursor: pointer;
+          color: var(--text-tertiary);
+          font-size: 20px;
+          line-height: 1;
+          border-radius: 6px;
+          transition: all 0.15s;
+        }
+        .download-modal-close:hover {
+          background: var(--bg-hover);
+          color: var(--text-primary);
+        }
         .download-modal-body {
-          padding: 20px;
+          padding: 24px;
         }
         .download-message {
-          margin: 0 0 16px 0;
+          margin: 0 0 20px 0;
           font-size: 14px;
-          color: var(--text-primary);
-          line-height: 1.5;
+          color: var(--text-secondary);
+          line-height: 1.6;
         }
-        .download-progress {
+        .download-progress-section {
+          text-align: center;
+          padding: 20px 0;
+        }
+        .download-spinner-wrapper {
           display: flex;
+          flex-direction: column;
           align-items: center;
           gap: 12px;
-          color: var(--accent-primary);
-          font-size: 13px;
+          margin-bottom: 16px;
         }
         .download-spinner {
-          width: 20px;
-          height: 20px;
-          border: 2px solid var(--border-default);
+          width: 48px;
+          height: 48px;
+          border: 4px solid var(--border-default);
           border-top-color: var(--accent-primary);
           border-radius: 50%;
           animation: spin 0.8s linear infinite;
         }
+        .download-spinner-text {
+          font-size: 14px;
+          color: var(--text-tertiary);
+          font-weight: 500;
+        }
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
-        .download-error {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
+        .download-progress-text {
+          font-size: 14px;
+          color: var(--text-secondary);
+          margin-top: 12px;
         }
-        .download-error p {
+        .download-error-section {
+          text-align: center;
+          padding: 20px 0;
+        }
+        .download-error-icon {
+          font-size: 48px;
+          margin-bottom: 16px;
+        }
+        .download-error-content {
+          margin-bottom: 20px;
+        }
+        .download-error-title {
+          margin: 0 0 8px 0;
+          font-size: 18px;
+          font-weight: 600;
+          color: var(--status-error, #ff4d4f);
+        }
+        .download-error-message {
           margin: 0;
           font-size: 14px;
-          color: var(--color-danger, #ff4d4f);
+          color: var(--text-secondary);
+          line-height: 1.5;
         }
-        .download-manual-btn {
-          align-self: flex-start;
+        .download-error-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-top: 20px;
         }
-        .btn {
-          padding: 8px 16px;
-          font-size: 13px;
+        .download-btn {
+          padding: 12px 24px;
+          font-size: 14px;
           font-weight: 500;
-          border-radius: 6px;
+          border-radius: 8px;
           cursor: pointer;
           transition: all 0.15s;
           border: none;
+          width: 100%;
         }
-        .btn-primary {
-          background: var(--accent-primary);
+        .download-btn-retry {
+          background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+          color: white;
+        }
+        .download-btn-retry:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        .download-btn-secondary {
+          background: var(--bg-hover);
           color: var(--text-primary);
+          border: 1px solid var(--border-default);
         }
-        .btn-primary:hover {
-          background: var(--accent-hover);
+        .download-btn-secondary:hover {
+          background: var(--bg-active);
+        }
+        .download-btn-close {
+          background: transparent;
+          color: var(--text-tertiary);
+          border: 1px solid var(--border-subtle);
+        }
+        .download-btn-close:hover {
+          background: var(--bg-hover);
+          color: var(--text-secondary);
+        }
+        .download-waiting {
+          text-align: center;
+          padding: 40px 0;
+        }
+        @keyframes modalFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes modalSlideIn {
+          from { opacity: 0; transform: scale(0.95) translateY(-20px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
         }
       `}</style>
     </div>

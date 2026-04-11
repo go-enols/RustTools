@@ -21,7 +21,9 @@ import { useTrainingStore } from '../../../core/stores/trainingStore';
 import {
   loadVideo,
   startVideoInference,
+  startRustVideoInference,
   stopVideoInference,
+  stopRustVideoInference,
   captureScreenshot,
   extractFrames,
 } from '../../../core/api/video';
@@ -56,11 +58,43 @@ export default function VideoPage() {
 
   // Model selection
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [customModelPath, setCustomModelPath] = useState<string | null>(null);
+  
+  // 从训练列表获取模型路径
+  const selectedModel = trainedModels.find((m) => m.id === selectedModelId);
+  const modelPath = selectedModel?.modelPath || '';
+  
+  // 支持自定义路径或训练列表路径
+  const effectiveModelPath = customModelPath || modelPath;
+  const isUsingCustomModel = !!customModelPath;
+
+  // 浏览模型文件
+  const handleBrowseModel = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{
+          name: 'YOLO Models',
+          extensions: ['onnx', 'pt', 'pth', 'safetensors']
+        }]
+      });
+      
+      if (selected) {
+        const path = typeof selected === 'string' ? selected : selected[0];
+        setCustomModelPath(path);
+        setSelectedModelId(null); // 清除训练列表选择
+      }
+    } catch (err) {
+      console.error('Failed to open file dialog:', err);
+      setInferenceError('无法打开文件选择对话框');
+    }
+  };
 
   // Inference settings
   const [confidence, setConfidence] = useState(0.65);
   const [gpuAccel, setGpuAccel] = useState(true);
   const [isInferenceEnabled, setIsInferenceEnabled] = useState(true);
+  const [useRustInference, setUseRustInference] = useState(true); // 默认使用 Rust 推理
 
   // Screenshot settings
   const [showScreenshot, setShowScreenshot] = useState(false);
@@ -79,11 +113,9 @@ export default function VideoPage() {
   // Processed frames display
   const [processedFrames, setProcessedFrames] = useState<Set<number>>(new Set());
 
-  const selectedModel = trainedModels.find((m) => m.id === selectedModelId);
-  const modelPath = selectedModel?.modelPath || '';
-
   // Listen for inference events
   useEffect(() => {
+    // Python 推理事件
     const unlistenFrame = listen<{
       session_id: string;
       frame: number;
@@ -116,9 +148,49 @@ export default function VideoPage() {
       }
     });
 
+    // Rust 推理事件
+    const unlistenRustFrame = listen<{
+      session_id: string;
+      frame: number;
+      boxes: AnnotationBox[];
+    }>('rust-video-inference-frame', (event) => {
+      if (sessionId && event.payload.session_id === sessionId) {
+        setCurrentInferenceFrame(event.payload.frame);
+        setProcessedFrames((prev) => new Set([...prev, event.payload.frame]));
+        setInferenceResults((prev) => [
+          ...prev,
+          {
+            frameIndex: event.payload.frame,
+            timestampMs: 0,
+            boxes: event.payload.boxes,
+          },
+        ]);
+      }
+    });
+
+    const unlistenRustComplete = listen<{
+      session_id: string;
+      success: boolean;
+      frames?: number;
+      results_path?: string;
+      error?: string;
+    }>('rust-video-inference-complete', (event) => {
+      if (sessionId && event.payload.session_id === sessionId) {
+        setIsInferring(false);
+        if (!event.payload.success) {
+          setInferenceError(event.payload.error || 'Inference failed');
+        } else {
+          console.log(`[Rust Inference] Complete! Processed ${event.payload.frames} frames`);
+          console.log(`[Rust Inference] Results saved to: ${event.payload.results_path}`);
+        }
+      }
+    });
+
     return () => {
       unlistenFrame.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
+      unlistenRustFrame.then((fn) => fn());
+      unlistenRustComplete.then((fn) => fn());
     };
   }, [sessionId]);
 
@@ -193,8 +265,8 @@ export default function VideoPage() {
 
   // Start inference
   const handleStartInference = async () => {
-    if (!videoPath || !modelPath) {
-      setInferenceError('Please select a video and model first');
+    if (!videoPath || !effectiveModelPath) {
+      setInferenceError('请先选择视频和模型文件（从列表或浏览）');
       return;
     }
 
@@ -205,7 +277,7 @@ export default function VideoPage() {
 
     const config: VideoInferenceConfig = {
       video_path: videoPath,
-      model_path: modelPath,
+      model_path: effectiveModelPath,
       confidence,
       iou_threshold: 0.5,
       device: gpuAccel ? '0' : 'cpu',
@@ -213,11 +285,15 @@ export default function VideoPage() {
       frame_interval: 1,
     };
 
-    const response = await startVideoInference(config);
+    // 根据选择使用不同的推理引擎
+    const response = useRustInference
+      ? await startRustVideoInference(config)
+      : await startVideoInference(config);
+      
     if (response.success && response.data) {
       setSessionId(response.data.inference_id);
     } else {
-      setInferenceError(response.error || 'Failed to start inference');
+      setInferenceError(response.error || '启动推理失败');
       setIsInferring(false);
     }
   };
@@ -225,7 +301,12 @@ export default function VideoPage() {
   // Stop inference
   const handleStopInference = async () => {
     if (sessionId) {
-      await stopVideoInference();
+      // 根据使用的推理引擎停止
+      if (useRustInference) {
+        await stopRustVideoInference();
+      } else {
+        await stopVideoInference();
+      }
       setIsInferring(false);
     }
   };
@@ -406,22 +487,59 @@ export default function VideoPage() {
               <Gauge size={14} />
               选择模型
             </div>
-            <select
-              className="select"
-              value={selectedModelId || ''}
-              onChange={(e) => setSelectedModelId(e.target.value || null)}
-              style={{ width: '100%' }}
+            
+            {/* 下拉选择训练列表 */}
+            <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+              <select
+                className="select"
+                value={selectedModelId || ''}
+                onChange={(e) => {
+                  setSelectedModelId(e.target.value || null);
+                  setCustomModelPath(null); // 清除自定义路径
+                }}
+                style={{ width: '100%' }}
+                disabled={isInferring}
+              >
+                <option value="">选择训练好的模型...</option>
+                {trainedModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.projectName} - {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* 或手动选择文件 */}
+            <button
+              className="btn-secondary"
+              onClick={handleBrowseModel}
+              disabled={isInferring}
+              style={{ width: '100%', marginBottom: 'var(--spacing-sm)' }}
             >
-              <option value="">选择训练好的模型...</option>
-              {trainedModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.projectName} - {m.name}
-                </option>
-              ))}
-            </select>
-            {selectedModel && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                路径: {modelPath}
+              <FolderOpen size={14} />
+              浏览模型文件...
+            </button>
+            
+            {/* 显示当前选择 */}
+            {effectiveModelPath && (
+              <div style={{ 
+                fontSize: 11, 
+                color: isUsingCustomModel ? 'var(--accent-primary)' : 'var(--text-tertiary)', 
+                marginTop: 4,
+                wordBreak: 'break-all'
+              }}>
+                <div style={{ fontWeight: 500, marginBottom: 2 }}>
+                  {isUsingCustomModel ? '📁 自定义模型' : '📋 训练模型'}
+                </div>
+                <div style={{ opacity: 0.8 }}>
+                  {effectiveModelPath.split(/[/\\]/).pop()}
+                </div>
+              </div>
+            )}
+            
+            {!effectiveModelPath && (
+              <div style={{ fontSize: 11, color: 'var(--status-warning)', marginTop: 4 }}>
+                ⚠️ 请选择模型文件
               </div>
             )}
           </div>
@@ -433,6 +551,30 @@ export default function VideoPage() {
               推理设置
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+              {/* 推理引擎选择 */}
+              <div>
+                <label
+                  style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'block', marginBottom: 4 }}
+                >
+                  推理引擎
+                </label>
+                <select
+                  className="select"
+                  value={useRustInference ? 'rust' : 'python'}
+                  onChange={(e) => setUseRustInference(e.target.value === 'rust')}
+                  style={{ width: '100%' }}
+                  disabled={isInferring}
+                >
+                  <option value="rust">🤖 Rust (推荐 - 纯 Rust 高性能)</option>
+                  <option value="python">🐍 Python (需要环境配置)</option>
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                  {useRustInference 
+                    ? '✓ 纯 Rust 实现，无需 Python 环境' 
+                    : '⚠️ 需要安装 Python 和 ultralytics'}
+                </div>
+              </div>
+              
               <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
@@ -448,8 +590,11 @@ export default function VideoPage() {
                   checked={gpuAccel}
                   onChange={(e) => setGpuAccel(e.target.checked)}
                   className="checkbox"
+                  disabled={useRustInference} // Rust 推理暂不支持 GPU
                 />
-                <span style={{ fontSize: 13 }}>GPU加速</span>
+                <span style={{ fontSize: 13, color: useRustInference ? 'var(--text-tertiary)' : undefined }}>
+                  GPU加速 {!useRustInference ? '' : '(开发中)'}
+                </span>
               </label>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'block', marginBottom: 4 }}>
@@ -474,9 +619,9 @@ export default function VideoPage() {
                   className="btn-primary"
                   style={{ flex: 1 }}
                   onClick={handleStartInference}
-                  disabled={!videoPath || !modelPath}
+                  disabled={!videoPath || !effectiveModelPath}
                 >
-                  开始推理
+                  {useRustInference ? '🤖 Rust 推理' : '🐍 Python 推理'}
                 </button>
               ) : (
                 <button

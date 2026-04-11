@@ -10,6 +10,7 @@ import AnnotationPage from './modules/yolo/pages/AnnotationPage';
 import TrainingPage from './modules/yolo/pages/TrainingPage';
 import ResultsPage from './modules/yolo/pages/ResultsPage';
 import VideoPage from './modules/yolo/pages/VideoPage';
+import DesktopPage from './modules/yolo/pages/DesktopPage';
 import DevicePage from './modules/yolo/pages/DevicePage';
 import ToolsPage from './modules/yolo/pages/ToolsPage';
 import SettingsPage from './modules/yolo/pages/SettingsPage';
@@ -98,6 +99,8 @@ export default function App() {
         return <ResultsPage />;
       case 'video':
         return <VideoPage />;
+      case 'desktop':
+        return <DesktopPage />;
       case 'device':
         return <DevicePage />;
       case 'tools':

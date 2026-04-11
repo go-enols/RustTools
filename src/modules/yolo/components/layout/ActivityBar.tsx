@@ -4,6 +4,7 @@ import {
   Train,
   BarChart3,
   Video,
+  Monitor,
   Cpu,
   Wrench,
   Settings,
@@ -25,6 +26,7 @@ const pageIcons: { id: PageType; icon: typeof FileText; label: string }[] = [
   { id: 'training', icon: Train, label: '模型训练' },
   { id: 'results', icon: BarChart3, label: '训练结果' },
   { id: 'video', icon: Video, label: '视频推理' },
+  { id: 'desktop', icon: Monitor, label: '桌面推理' },
   { id: 'device', icon: Cpu, label: '设备管理' },
   { id: 'tools', icon: Wrench, label: '工具' },
 ];

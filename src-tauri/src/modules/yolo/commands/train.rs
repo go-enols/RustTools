@@ -5,6 +5,21 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainedModelResponse {
+    pub id: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub yolo_version: String,
+    pub model_size: String,
+    pub best_epoch: u32,
+    pub total_epochs: u32,
+    pub map50: f32,
+    pub map50_95: f32,
+    pub model_path: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingProgressEvent {
     pub training_id: String,
     pub epoch: u32,
@@ -331,5 +346,46 @@ pub async fn yolo_download_model(
             path: None,
             error: Some(e),
         })),
+    }
+}
+
+/// Get list of trained models
+#[tauri::command]
+pub async fn model_list(
+    state: State<'_, Arc<TrainerService>>,
+) -> Result<CommandResponse<Vec<TrainedModelResponse>>, String> {
+    match state.get_trained_models().await {
+        Ok(models) => {
+            let response: Vec<TrainedModelResponse> = models
+                .into_iter()
+                .map(|m| TrainedModelResponse {
+                    id: m.id,
+                    project_name: m.project_name,
+                    project_path: m.project_path,
+                    yolo_version: m.yolo_version,
+                    model_size: m.model_size,
+                    best_epoch: m.best_epoch,
+                    total_epochs: m.total_epochs,
+                    map50: m.map50,
+                    map50_95: m.map50_95,
+                    model_path: m.model_path,
+                    created_at: m.created_at,
+                })
+                .collect();
+            Ok(CommandResponse::ok(response))
+        }
+        Err(e) => Ok(CommandResponse::err(e)),
+    }
+}
+
+/// Delete a trained model
+#[tauri::command]
+pub async fn model_delete(
+    state: State<'_, Arc<TrainerService>>,
+    model_id: String,
+) -> Result<CommandResponse<()>, String> {
+    match state.delete_trained_model(&model_id).await {
+        Ok(_) => Ok(CommandResponse::ok(())),
+        Err(e) => Ok(CommandResponse::err(e)),
     }
 }

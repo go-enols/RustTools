@@ -8,85 +8,21 @@ import {
   RefreshCw,
   FolderOpen,
 } from 'lucide-react';
-import { invoke } from '@tauri-apps/api/core';
 import { useTrainingStore, TrainingConfig } from '../../../core/stores/trainingStore';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
 import {
   checkModel,
   downloadModel,
+  checkPythonEnv,
+  selectFile,
 } from '../../../core/api';
-import { DialogResult } from '../../../core/api/types';
 import { listen } from '@tauri-apps/api/event';
 import { DownloadModal } from '../../../shared/components/ui/Modal';
 
-interface PythonEnvInfo {
-  python_exists: boolean;
-  python_version: string | null;
-  torch_exists: boolean;
-  torch_version: string | null;
-  torchaudio_exists: boolean;
-  cuda_available: boolean;
-  cuda_version: string | null;
-  ultralytics_exists: boolean;
-  ultralytics_version: string | null;
-  yolo_command_exists: boolean;
-}
-
-// YOLO model download URLs
-const MODEL_DOWNLOAD_URLS: Record<string, string> = {
-  // YOLO11 (最新一代)
-  'yolo11n.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11n.pt',
-  'yolo11s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11s.pt',
-  'yolo11m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11m.pt',
-  'yolo11l.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11l.pt',
-  'yolo11x.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo11x.pt',
-  // YOLOv10
-  'yolo10n.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10n.pt',
-  'yolo10s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10s.pt',
-  'yolo10m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10m.pt',
-  'yolo10b.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10b.pt',
-  'yolo10l.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10l.pt',
-  'yolo10x.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo10x.pt',
-  // YOLOv9
-  'yolov9t.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9t.pt',
-  'yolov9s.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9s.pt',
-  'yolov9m.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9m.pt',
-  'yolov9c.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9c.pt',
-  'yolov9e.pt': 'https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov9e.pt',
-  // YOLOv8 (8.3.0)
-  'yolov8n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt',
-  'yolov8s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s.pt',
-  'yolov8m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m.pt',
-  'yolov8l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l.pt',
-  'yolov8x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8x.pt',
-  'yolov8n6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n6.pt',
-  'yolov8s6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8s6.pt',
-  'yolov8m6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8m6.pt',
-  'yolov8l6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8l6.pt',
-  'yolov8x6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8x6.pt',
-  // YOLOv6
-  'yolov6n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6n.pt',
-  'yolov6s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6s.pt',
-  'yolov6m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6m.pt',
-  'yolov6l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6l.pt',
-  'yolov6x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov6x.pt',
-  // YOLOv5
-  'yolov5n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5n.pt',
-  'yolov5s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5s.pt',
-  'yolov5m.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5m.pt',
-  'yolov5l.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5l.pt',
-  'yolov5x.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5x.pt',
-  'yolov5n6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5n6.pt',
-  'yolov5s6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5s6.pt',
-  'yolov5m6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5m6.pt',
-  'yolov5l6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5l6.pt',
-  'yolov5x6.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov5x6.pt',
-  // YOLOv3
-  'yolov3u.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3u.pt',
-  'yolov3-spp.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-spp.pt',
-  'yolov3-tiny.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-tiny.pt',
-  'yolov3-son.pt': 'https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov3-son.pt',
-};
+// 移除前端重复的类型定义，统一使用 API 层的类型
+// 模型下载已统一使用后端镜像源
+// 后端实现了三个镜像源：ghproxy、hf-mirror、GitHub 直连
+// 前端无需定义下载 URL，统一调用 downloadModel() API
 
 const defaultConfig: TrainingConfig = {
   base_model: 'yolo11s.pt',
@@ -207,43 +143,82 @@ export default function TrainingPage() {
     const checkResult = await checkModel(modelName);
 
     let modelPath = modelName;
-    if (checkResult.success && checkResult.data) {
-      if (!checkResult.data.exists) {
-        // Model doesn't exist, need to download
-        setShowDownloadModal(true);
-        setDownloadProgress(`正在检查模型 ${modelName}...`);
-        setDownloadError('');
+    
+    // Model exists, use the full path
+    if (checkResult.success && checkResult.data?.exists && checkResult.data.path) {
+      console.log(`[Training] 模型已存在: ${checkResult.data.path}`);
+      modelPath = checkResult.data.path;
+    } 
+    // Model doesn't exist or check failed, download it
+    else {
+      console.log(`[Training] 模型不存在或检查失败，开始下载: ${modelName}`);
+      
+      if (checkResult.error) {
+        console.warn(`[Training] 检查模型失败: ${checkResult.error}，将尝试下载`);
+      }
+      
+      setShowDownloadModal(true);
+      setDownloadProgress(`正在下载 ${modelName}...`);
+      setDownloadError('');
 
-        const downloadResult = await downloadModel(modelName);
+      const downloadResult = await downloadModel(modelName);
 
-        if (!downloadResult.success || !downloadResult.data?.success) {
-          const errorMsg = downloadResult.error || downloadResult.data?.error || '模型下载失败';
-          setDownloadError(errorMsg);
-          return;
-        }
-
+      if (downloadResult.success && downloadResult.data?.success) {
+        console.log(`[Training] 模型下载成功: ${downloadResult.data.path}`);
         setShowDownloadModal(false);
-        // Use the downloaded model path
         if (downloadResult.data?.path) {
           modelPath = downloadResult.data.path;
         }
-      } else if (checkResult.data.path) {
-        // Model exists, use the full path
-        modelPath = checkResult.data.path;
+      } else {
+        const errorMsg = downloadResult.error || downloadResult.data?.error || '模型下载失败';
+        console.error(`[Training] 模型下载失败: ${errorMsg}`);
+        setDownloadError(errorMsg);
+        return;
       }
-    } else {
-      console.warn('检查模型失败，将尝试直接开始训练:', checkResult.error);
     }
 
     // Start training with the resolved model path
     startTraining({ ...config, base_model: modelPath });
   };
 
-  const handleManualDownload = () => {
-    const url = MODEL_DOWNLOAD_URLS[config.base_model];
-    if (url) {
-      window.open(url, '_blank');
+  // 手动下载模型 - 统一使用后端镜像下载
+  const handleManualDownload = async () => {
+    const modelName = config.base_model;
+    
+    if (modelName.startsWith('custom:')) {
+      alert('自定义模型无需下载');
+      return;
     }
+    
+    // 直接调用后端下载，使用镜像源
+    setShowDownloadModal(true);
+    setDownloadProgress(`正在下载 ${modelName}...`);
+    setDownloadError('');
+    
+    const result = await downloadModel(modelName);
+    
+    if (result.success && result.data?.success) {
+      console.log(`[Training] 模型下载成功: ${result.data.path}`);
+      setShowDownloadModal(false);
+      alert(`✅ 模型下载成功！\n\n保存路径: ${result.data.path}\n\n请重新点击"开始训练"开始训练。`);
+    } else {
+      const errorMsg = result.error || result.data?.error || '模型下载失败';
+      console.error(`[Training] 模型下载失败: ${errorMsg}`);
+      setDownloadError(errorMsg);
+      // 保持弹窗打开，让用户选择重试或关闭
+    }
+  };
+  
+  // 关闭下载弹窗
+  const handleCloseDownloadModal = () => {
+    setShowDownloadModal(false);
+    setDownloadProgress('');
+    setDownloadError('');
+  };
+  
+  // 重试下载
+  const handleRetryDownload = () => {
+    handleManualDownload();
   };
 
   const batchProgress = useTrainingStore((s) => s.batchProgress);
@@ -286,12 +261,66 @@ export default function TrainingPage() {
                   onChange={(e) => setConfig({ ...config, base_model: e.target.value })}
                   style={{ marginLeft: 8, minWidth: 200 }}
                 >
-                  <optgroup label="YOLO11 (最新)">
+                  <optgroup label="YOLO26 (最新)">
+                    <option value="yolo26n.pt">YOLO26n - 最小/最快</option>
+                    <option value="yolo26s.pt">YOLO26s - 小/快</option>
+                    <option value="yolo26m.pt">YOLO26m - 中/平衡</option>
+                    <option value="yolo26l.pt">YOLO26l - 大/准</option>
+                    <option value="yolo26x.pt">YOLO26x - 最大/最准</option>
+                    <option value="yolo26n-cls.pt">YOLO26n-CLS - 最小/分类</option>
+                    <option value="yolo26s-cls.pt">YOLO26s-CLS - 小/分类</option>
+                    <option value="yolo26m-cls.pt">YOLO26m-CLS - 中/分类</option>
+                    <option value="yolo26l-cls.pt">YOLO26l-CLS - 大/分类</option>
+                    <option value="yolo26x-cls.pt">YOLO26x-CLS - 最大/分类</option>
+                    <option value="yolo26n-seg.pt">YOLO26n-SEG - 最小/分割</option>
+                    <option value="yolo26s-seg.pt">YOLO26s-SEG - 小/分割</option>
+                    <option value="yolo26m-seg.pt">YOLO26m-SEG - 中/分割</option>
+                    <option value="yolo26l-seg.pt">YOLO26l-SEG - 大/分割</option>
+                    <option value="yolo26x-seg.pt">YOLO26x-SEG - 最大/分割</option>
+                  </optgroup>
+                  <optgroup label="YOLO12 (新版)">
+                    <option value="yolo12n.pt">YOLO12n - 最小/最快</option>
+                    <option value="yolo12s.pt">YOLO12s - 小/快</option>
+                    <option value="yolo12m.pt">YOLO12m - 中/平衡</option>
+                    <option value="yolo12l.pt">YOLO12l - 大/准</option>
+                    <option value="yolo12x.pt">YOLO12x - 最大/最准</option>
+                    <option value="yolo12n-cls.pt">YOLO12n-CLS - 最小/分类</option>
+                    <option value="yolo12s-cls.pt">YOLO12s-CLS - 小/分类</option>
+                    <option value="yolo12m-cls.pt">YOLO12m-CLS - 中/分类</option>
+                    <option value="yolo12l-cls.pt">YOLO12l-CLS - 大/分类</option>
+                    <option value="yolo12x-cls.pt">YOLO12x-CLS - 最大/分类</option>
+                    <option value="yolo12n-seg.pt">YOLO12n-SEG - 最小/分割</option>
+                    <option value="yolo12s-seg.pt">YOLO12s-SEG - 小/分割</option>
+                    <option value="yolo12m-seg.pt">YOLO12m-SEG - 中/分割</option>
+                    <option value="yolo12l-seg.pt">YOLO12l-SEG - 大/分割</option>
+                    <option value="yolo12x-seg.pt">YOLO12x-SEG - 最大/分割</option>
+                  </optgroup>
+                  <optgroup label="YOLO11">
                     <option value="yolo11n.pt">YOLO11n - 最小/最快</option>
                     <option value="yolo11s.pt">YOLO11s - 小/快</option>
                     <option value="yolo11m.pt">YOLO11m - 中/平衡</option>
                     <option value="yolo11l.pt">YOLO11l - 大/准</option>
                     <option value="yolo11x.pt">YOLO11x - 最大/最准</option>
+                    <option value="yolo11n-cls.pt">YOLO11n-CLS - 最小/分类</option>
+                    <option value="yolo11s-cls.pt">YOLO11s-CLS - 小/分类</option>
+                    <option value="yolo11m-cls.pt">YOLO11m-CLS - 中/分类</option>
+                    <option value="yolo11l-cls.pt">YOLO11l-CLS - 大/分类</option>
+                    <option value="yolo11x-cls.pt">YOLO11x-CLS - 最大/分类</option>
+                    <option value="yolo11n-seg.pt">YOLO11n-SEG - 最小/分割</option>
+                    <option value="yolo11s-seg.pt">YOLO11s-SEG - 小/分割</option>
+                    <option value="yolo11m-seg.pt">YOLO11m-SEG - 中/分割</option>
+                    <option value="yolo11l-seg.pt">YOLO11l-SEG - 大/分割</option>
+                    <option value="yolo11x-seg.pt">YOLO11x-SEG - 最大/分割</option>
+                    <option value="yolo11n-pose.pt">YOLO11n-POSE - 最小/姿态</option>
+                    <option value="yolo11s-pose.pt">YOLO11s-POSE - 小/姿态</option>
+                    <option value="yolo11m-pose.pt">YOLO11m-POSE - 中/姿态</option>
+                    <option value="yolo11l-pose.pt">YOLO11l-POSE - 大/姿态</option>
+                    <option value="yolo11x-pose.pt">YOLO11x-POSE - 最大/姿态</option>
+                    <option value="yolo11n-obb.pt">YOLO11n-OBB - 最小/旋转框</option>
+                    <option value="yolo11s-obb.pt">YOLO11s-OBB - 小/旋转框</option>
+                    <option value="yolo11m-obb.pt">YOLO11m-OBB - 中/旋转框</option>
+                    <option value="yolo11l-obb.pt">YOLO11l-OBB - 大/旋转框</option>
+                    <option value="yolo11x-obb.pt">YOLO11x-OBB - 最大/旋转框</option>
                   </optgroup>
                   <optgroup label="YOLOv10">
                     <option value="yolo10n.pt">YOLOv10n - 最小/最快</option>
@@ -360,16 +389,9 @@ export default function TrainingPage() {
               <button
                 className="btn btn-secondary"
                 onClick={async () => {
-                  try {
-                    const result = await invoke<DialogResult>('open_file_dialog', {
-                      title: '选择模型文件',
-                      filters: [{ name: 'YOLO Model', extensions: ['pt', 'pth'] }],
-                    });
-                    if (!result.canceled && result.paths && result.paths.length > 0) {
-                      setConfig({ ...config, base_model: `custom:${result.paths[0]}` });
-                    }
-                  } catch (e) {
-                    console.error('Failed to open file dialog:', e);
+                  const result = await selectFile('选择模型文件', [{ name: 'YOLO Model', extensions: ['pt', 'pth'] }]);
+                  if (!result.canceled && result.path) {
+                    setConfig({ ...config, base_model: `custom:${result.path}` });
                   }
                 }}
                 style={{ marginLeft: 8 }}
@@ -590,22 +612,6 @@ export default function TrainingPage() {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>设备</label>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const result = await invoke<{ success: boolean; data: PythonEnvInfo | null }>('check_python_env');
-                        if (result.success && result.data) {
-                          setCudaAvailable(result.data.cuda_available);
-                        }
-                      } catch {
-                        console.warn('Failed to check CUDA');
-                      }
-                    }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
-                    title="重新检测 CUDA"
-                  >
-                    <RefreshCw size={12} />
-                  </button>
                 </div>
                 <select
                   className="select"
@@ -622,6 +628,18 @@ export default function TrainingPage() {
                     <option value={-1}>CPU (CUDA 不可用)</option>
                   )}
                 </select>
+                <button
+                  onClick={async () => {
+                    const result = await checkPythonEnv();
+                    if (result.success && result.data) {
+                      setCudaAvailable(result.data.cuda_available);
+                    }
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
+                  title="重新检测 CUDA"
+                >
+                  <RefreshCw size={12} />
+                </button>
               </div>
             </div>
           </div>
@@ -943,11 +961,11 @@ export default function TrainingPage() {
           <DownloadModal
             isOpen={showDownloadModal}
             title="下载模型"
-            message={`正在下载模型 ${config.base_model}，请稍候...`}
+            message={`正在下载 ${config.base_model}...`}
             progress={downloadProgress}
             error={downloadError}
-            downloadUrl={MODEL_DOWNLOAD_URLS[config.base_model]}
-            onManualDownload={handleManualDownload}
+            onClose={handleCloseDownloadModal}
+            onRetry={handleRetryDownload}
           />
         </div> </div>
     </div>

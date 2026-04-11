@@ -1,27 +1,14 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { CheckCircle, XCircle, AlertCircle, Download, Loader2, Terminal } from 'lucide-react';
-
-interface PythonEnvInfo {
-  python_exists: boolean;
-  python_version: string | null;
-  torch_exists: boolean;
-  torch_version: string | null;
-  torchaudio_exists: boolean;
-  cuda_available: boolean;
-  cuda_version: string | null;
-  ultralytics_exists: boolean;
-  ultralytics_version: string | null;
-  yolo_command_exists: boolean;
-}
-
-interface InstallInstructions {
-  pip_install: string[];
-  torch_install: string[];
-  torch_cpu_install: string[];
-  ultralytics_install: string[];
-  manual_download: string[];
-}
+import {
+  checkPythonEnv,
+  getCachedPythonEnv,
+  getInstallInstructions,
+  installPythonDeps,
+  clearPythonEnvCache,
+  type PythonEnvInfo,
+  type InstallInstructions,
+} from '../../../core/api/training';
 
 interface PythonEnvCheckProps {
   onClose?: () => void;
@@ -30,6 +17,7 @@ interface PythonEnvCheckProps {
 export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
   const [envInfo, setEnvInfo] = useState<PythonEnvInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);  // 区分首次加载和手动刷新
   const [installing, setInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState('');
   const [installError, setInstallError] = useState<string | null>(null);
@@ -39,23 +27,76 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
   const [cpuOnly, setCpuOnly] = useState(false);
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [instructions, setInstructions] = useState<InstallInstructions | null>(null);
+  const [fromCache, setFromCache] = useState(false);  // 标记数据来源
 
   useEffect(() => {
     loadInstructions();
-    checkEnvironment();
+    // 首次加载：优先使用缓存
+    loadEnvironmentInfo();
   }, []);
 
-  const checkEnvironment = async () => {
+  /**
+   * 加载环境信息 - 优先使用缓存，避免重复检测
+   */
+  const loadEnvironmentInfo = async () => {
     setLoading(true);
+    setFromCache(false);
+    
     try {
-      const result = await invoke<{
-        success: boolean;
-        data: PythonEnvInfo | null;
-        error: string | null;
-      }>('check_python_env');
+      // 尝试获取缓存的环境信息
+      const cached = await getCachedPythonEnv();
+      
+      if (cached.success && cached.data) {
+        // 有缓存，直接使用
+        setEnvInfo(cached.data);
+        setFromCache(true);
+        setLoading(false);
+        return;
+      }
+      
+      // 没有缓存，执行检测
+      await checkEnvironment();
+    } catch (error) {
+      console.error('[PythonEnvCheck] Failed to load environment info:', error);
+      // 检测失败时显示空状态
+      setEnvInfo({
+        python_exists: false,
+        python_version: null,
+        torch_exists: false,
+        torch_version: null,
+        torchaudio_exists: false,
+        cuda_available: false,
+        cuda_version: null,
+        ultralytics_exists: false,
+        ultralytics_version: null,
+        yolo_command_exists: false,
+      });
+      setLoading(false);
+    }
+  };
+
+  /**
+   * 手动重新检测环境
+   */
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await checkEnvironment(true);  // 强制刷新
+    setIsRefreshing(false);
+  };
+
+  /**
+   * 执行环境检测
+   * @param forceRefresh - 是否强制刷新（绕过缓存）
+   */
+  const checkEnvironment = async (forceRefresh: boolean = false) => {
+    setLoading(true);
+    
+    try {
+      const result = await checkPythonEnv(forceRefresh);
 
       if (result.success && result.data) {
         setEnvInfo(result.data);
+        setFromCache(false);  // 新检测的数据不是缓存
       } else {
         setEnvInfo({
           python_exists: false,
@@ -70,8 +111,8 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
           yolo_command_exists: false,
         });
       }
-    } catch (e) {
-      console.error('Failed to check Python env:', e);
+    } catch (error) {
+      console.error('[PythonEnvCheck] Environment check failed:', error);
       setEnvInfo({
         python_exists: false,
         python_version: null,
@@ -84,50 +125,42 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
         ultralytics_version: null,
         yolo_command_exists: false,
       });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const loadInstructions = async () => {
-    try {
-      const result = await invoke<InstallInstructions>(
-        'get_install_instructions'
-      );
-      setInstructions(result);
-    } catch (e) {
-      console.error('Failed to load instructions:', e);
-    }
+    const result = await getInstallInstructions();
+    setInstructions(result);
   };
 
+  /**
+   * 处理安装依赖
+   */
   const handleInstall = async () => {
     setInstalling(true);
     setInstallError(null);
     setInstallProgress('正在安装 Python 依赖...');
 
-    try {
-      const result = await invoke<{
-        success: boolean;
-        message: string;
-      }>('install_python_deps', { useMirror, cpuOnly });
+    const result = await installPythonDeps(useMirror, cpuOnly);
 
-      if (result.success) {
-        setInstallProgress('安装成功！');
-        setTimeout(() => {
-          setShowInstallModal(false);
-          checkEnvironment();
-        }, 1500);
-      } else {
-        setInstallError(result.message);
-      }
-    } catch (e) {
-      setInstallError(`安装失败: ${e}`);
+    if (result.success) {
+      setInstallProgress('安装成功！');
+      setTimeout(async () => {
+        setShowInstallModal(false);
+        // 安装完成后强制刷新检测
+        await checkEnvironment(true);
+      }, 1500);
+    } else {
+      setInstallError(result.error || '安装失败');
     }
     setInstalling(false);
   };
 
   const isEnvReady = envInfo?.python_exists && envInfo?.torch_exists && envInfo?.ultralytics_exists;
 
-  if (loading) {
+  if (loading && !envInfo) {
     return (
       <div style={{
         padding: 'var(--spacing-xl)',
@@ -440,7 +473,7 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
       </div>
 
       {/* Action Buttons */}
-      <div style={{ display: 'flex', gap: 'var(--spacing-md)' }}>
+      <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
         {!isEnvReady && (
           <button
             className="btn btn-primary"
@@ -451,9 +484,26 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
             立即安装
           </button>
         )}
-        <button className="btn btn-secondary" onClick={checkEnvironment}>
-          重新检测
+        <button 
+          className="btn btn-secondary" 
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        >
+          {isRefreshing ? (
+            <>
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              检测中...
+            </>
+          ) : (
+            '重新检测'
+          )}
         </button>
+        {fromCache && !isRefreshing && (
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+            (已缓存)
+          </span>
+        )}
         {onClose && (
           <button className="btn btn-secondary" onClick={onClose}>
             关闭

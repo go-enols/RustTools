@@ -438,6 +438,8 @@ pub mod env;
 pub mod train;
 pub mod video;
 pub mod device;
+pub mod desktop;
+pub mod model_conversion;
 
 /// Import an existing YOLO dataset and create a project
 #[tauri::command]
