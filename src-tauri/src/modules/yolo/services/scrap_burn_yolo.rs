@@ -187,7 +187,8 @@ impl AsyncCaptureService {
             return Err(format!("显示器索引 {} 超出范围 (共 {} 个)", display_index, displays.len()));
         }
         
-        let display = &displays[display_index];
+        // 获取所有权
+        let display = displays.into_iter().nth(display_index).unwrap();
         
         // 创建捕获器
         let capturer = scrap::Capturer::new(display)
@@ -255,8 +256,8 @@ impl AsyncCaptureService {
         // 使用 scrap 捕获
         match capturer.frame() {
             Ok(frame) => {
-                // scrap 0.2 的 Frame 是一个 Vec<u8>
-                let data = frame;
+                // scrap 0.2 的 Frame 需要转换为 Vec<u8>
+                let data = frame.to_vec();
                 let width = 1920u32;  // 默认值，实际应该从捕获器获取
                 let height = 1080u32;  // 默认值
                 

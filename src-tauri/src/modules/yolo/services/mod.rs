@@ -10,7 +10,7 @@ pub mod model_optimizer;
 pub mod yolo_inference_core;
 pub mod desktop_performance_test;
 // pub mod yolo_gpu_inference;  // 待完善 tch-rs 集成
-pub mod async_desktop_capture;
+// pub mod async_desktop_capture;  // 有线程安全问题，暂时禁用
 // pub mod high_perf_yolo;  // 需要 burn 依赖，暂时禁用
 // 注意：ort (ONNX Runtime) 依赖暂时禁用
 // pub mod zero_copy_capture;
@@ -18,7 +18,8 @@ pub mod async_desktop_capture;
 // pub mod high_performance_desktop_capture;  // 待完善
 // pub mod rust_native_yolo;  // 已删除 - 使用 scrap_capture.rs
 // pub mod scrap_capture;  // 暂时禁用 - scrap API 版本不匹配
-pub mod scrap_burn_yolo;  // scrap + burn + tch-rs 高性能推理
+// pub mod scrap_burn_yolo;  // 有线程安全问题
+pub mod scrap_burn_final;  // 修复线程安全问题的最终版本
 
 pub use trainer::{TrainerService, TrainingEvent};
 pub use video::VideoService;
@@ -36,4 +37,4 @@ pub use yolo_inference_core::{
     InferenceConfig,
     DetectionBox as CoreDetectionBox,
 };
-pub use async_desktop_capture::{AsyncDesktopCaptureService, AsyncCaptureConfig, FrameBuffer};
+// async_desktop_capture 暂时禁用（有线程安全问题）

@@ -22,7 +22,7 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use image::{DynamicImage, ImageBuffer, Rgba};
 use tauri::Emitter;
 use crate::modules::yolo::services::desktop_capture::{
-    MonitorInfo, DesktopCaptureFrame, DesktopCaptureStatus,
+    MonitorInfo, DesktopCaptureFrame, DesktopCaptureStatus, AnnotationBox,
 };
 use crate::modules::yolo::services::inference_engine::InferenceEngine;
 
@@ -168,55 +168,66 @@ impl AsyncDesktopCaptureService {
                             if let Some(ref engine) = inference {
                                 let detect_start = Instant::now();
                                 
-                                // Convert image to RGB bytes
-                                let rgba_data = image.into_raw();
+                                // Convert to DynamicImage
+                                let dynamic_img = DynamicImage::ImageRgba8(image.clone());
                                 
-                                match engine.detect(&rgba_data, width, height, confidence) {
-                                    Ok(boxes) => {
-                                        let detect_time = detect_start.elapsed().as_secs_f64() * 1000.0;
-                                        
-                                        // Encode image to base64
-                                        let encode_start = Instant::now();
-                                        let img_buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, rgba_data)
-                                            .unwrap_or_else(|| ImageBuffer::new(width, height));
-                                        let dynamic_img = DynamicImage::ImageRgba8(img_buffer);
-                                        let mut jpg_data = Vec::new();
-                                        let mut cursor = std::io::Cursor::new(&mut jpg_data);
-                                        dynamic_img.write_to(&mut cursor, image::ImageFormat::Jpeg)
-                                            .map_err(|e| format!("Failed to encode: {:?}", e)).ok();
-                                        let base64_image = BASE64.encode(&jpg_data);
-                                        let encode_time = encode_start.elapsed().as_secs_f64() * 1000.0;
-                                        
-                                        let total_time = frame_start.elapsed().as_secs_f64() * 1000.0;
-                                        let fps = (1000.0 / total_time) as f32;
-                                        
-                                        // Emit frame to frontend
-                                        let frame = DesktopCaptureFrame {
-                                            session_id: session_id_clone.clone(),
-                                            image: base64_image,
-                                            boxes,
-                                            width,
-                                            height,
-                                            fps,
-                                            timestamp: std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_secs(),
-                                        };
-                                        
-                                        let emit_start = Instant::now();
-                                        app_handle.emit("desktop-frame", &frame).ok();
-                                        let emit_time = emit_start.elapsed().as_secs_f64() * 1000.0;
-                                        
-                                        eprintln!(
-                                            "[AsyncCap-Perf] capture: {:.1}ms | detect: {:.1}ms | encode: {:.1}ms | emit: {:.1}ms | total: {:.1}ms | FPS: {:.1}",
-                                            capture_time, detect_time, encode_time, emit_time, total_time, fps
-                                        );
+                                // Run inference
+                                let boxes = engine.detect(&dynamic_img, confidence);
+                                let detect_time = detect_start.elapsed().as_secs_f64() * 1000.0;
+                                
+                                // Encode image to base64
+                                let encode_start = Instant::now();
+                                let rgba_data = image.into_raw();  // 转换为RGBA数据用于编码
+                                let img_buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, rgba_data)
+                                    .unwrap_or_else(|| ImageBuffer::new(width, height));
+                                let dynamic_img_for_encode = DynamicImage::ImageRgba8(img_buffer);
+                                let mut jpg_data = Vec::new();
+                                let mut cursor = std::io::Cursor::new(&mut jpg_data);
+                                dynamic_img_for_encode.write_to(&mut cursor, image::ImageFormat::Jpeg)
+                                    .map_err(|e| format!("Failed to encode: {:?}", e)).ok();
+                                let base64_image = BASE64.encode(&jpg_data);
+                                let encode_time = encode_start.elapsed().as_secs_f64() * 1000.0;
+                                
+                                let total_time = frame_start.elapsed().as_secs_f64() * 1000.0;
+                                let fps = (1000.0 / total_time) as f32;
+                                
+                                // Convert DetectionBox to AnnotationBox
+                                let boxes: Vec<AnnotationBox> = boxes.iter().enumerate().map(|(idx, b)| {
+                                    AnnotationBox {
+                                        id: format!("det_{}", idx),
+                                        class_id: b.class_id,
+                                        class_name: b.class_name.clone(),
+                                        confidence: b.confidence,
+                                        x: b.x,
+                                        y: b.y,
+                                        width: b.width,
+                                        height: b.height,
                                     }
-                                    Err(e) => {
-                                        eprintln!("[AsyncCapture] Detection error: {}", e);
-                                    }
-                                }
+                                }).collect();
+                                
+                                // Emit frame to frontend
+                                let frame = DesktopCaptureFrame {
+                                    session_id: session_id_clone.clone(),
+                                    image: base64_image,
+                                    boxes,
+                                    width,
+                                    height,
+                                    fps,
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs(),
+                                };
+                                        
+                                // Emit frame to frontend
+                                let emit_start = Instant::now();
+                                app_handle.emit("desktop-frame", &frame).ok();
+                                let emit_time = emit_start.elapsed().as_secs_f64() * 1000.0;
+                                
+                                eprintln!(
+                                    "[AsyncCap-Perf] capture: {:.1}ms | detect: {:.1}ms | encode: {:.1}ms | emit: {:.1}ms | total: {:.1}ms | FPS: {:.1}",
+                                    capture_time, detect_time, encode_time, emit_time, total_time, fps
+                                );
                             }
                         }
                         Err(e) => {
