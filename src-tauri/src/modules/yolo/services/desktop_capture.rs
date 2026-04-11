@@ -244,13 +244,16 @@ impl DesktopCaptureService {
         orig_width: u32,
         orig_height: u32,
     ) -> Result<Vec<(f32, f32, f32, f32, f32, usize)>, String> {
-        // 图像已经在捕获时 resize 到 640x640，这里直接使用
-        // 不需要再次 resize
+        // 预处理
+        let preprocess_start = Instant::now();
         let input = Self::preprocess_image_fast_fixed(img)?;
+        let preprocess_time = preprocess_start.elapsed();
         
-        // Run inference
+        // 模型推理
+        let inference_start = Instant::now();
         let result = model.run(tvec![input.into()])
             .map_err(|e| format!("Inference failed: {}", e))?;
+        let inference_time = inference_start.elapsed();
         
         let output = &result[0];
         let shape = output.shape();
@@ -286,6 +289,8 @@ impl DesktopCaptureService {
         let output_data = output.to_array_view::<f32>()
             .map_err(|e| format!("Failed to access output: {}", e))?;
         
+        // 后处理
+        let postprocess_start = Instant::now();
         let mut detections = Vec::with_capacity(100); // Pre-allocate
         
         // YOLOv8 格式: [batch, features, boxes]
@@ -329,9 +334,28 @@ impl DesktopCaptureService {
                 detections.push((x1, y1, x2, y2, max_score, max_class));
             }
         }
+        let postprocess_time = postprocess_start.elapsed();
         
-        // Apply NMS
-        Ok(Self::nms(detections, 0.45))
+        // 保存原始检测数量(在移动之前)
+        let initial_detections_count = detections.len();
+        
+        // NMS
+        let nms_start = Instant::now();
+        let result = Self::nms(detections, 0.45);
+        let nms_time = nms_start.elapsed();
+        
+        let total_time = preprocess_time + inference_time + postprocess_time + nms_time;
+        eprintln!("[PERF-Inference] 预处理: {:.1}ms | 推理: {:.1}ms | 后处理: {:.1}ms | NMS: {:.1}ms | 总计: {:.1}ms (初始: {}, 最终: {})",
+            preprocess_time.as_secs_f32() * 1000.0,
+            inference_time.as_secs_f32() * 1000.0,
+            postprocess_time.as_secs_f32() * 1000.0,
+            nms_time.as_secs_f32() * 1000.0,
+            total_time.as_secs_f32() * 1000.0,
+            initial_detections_count,
+            result.len()
+        );
+        
+        Ok(result)
     }
     
     /// Non-Maximum Suppression (optimized)
@@ -570,8 +594,17 @@ impl DesktopCaptureService {
                     // Run inference if model is loaded
                     // 使用 640x640 小图进行推理，而不是全分辨率
                     let inference_start = Instant::now();
+                    let encode_start = inference_start; // 初始化编码开始时间
                     let boxes = if let Some(ref model) = yolo_model {
                         match Self::run_inference(model, &inference_img, confidence, orig_width, orig_height) {
+                            Ok(detections) => {
+                                if !detections.is_empty() {
+                                    eprintln!("[Desktop] Detected {} objects", detections.len());
+                                    for (x1, y1, x2, y2, conf, class_id) in &detections {
+                                        eprintln!("[Desktop]   - Class {} at ({:.0}, {:.0}, {:.0}, {:.0}) conf {:.2}", 
+                                            class_id, x1, y1, x2, y2, conf);
+                                    }
+                                }
                                 
                                 detections.into_iter().enumerate().map(|(idx, (x1, y1, x2, y2, conf, class_id))| {
                                     let class_name = if class_id < DEFAULT_CLASS_NAMES.len() {
@@ -602,9 +635,12 @@ impl DesktopCaptureService {
                     } else {
                         vec![]
                     };
+                    let inference_time = inference_start.elapsed();
+                    perf_stats.push_str(&format!(" | 推理: {:.1}ms", inference_time.as_secs_f32() * 1000.0));
                     
                     // 🚀 性能优化：使用 640x640 小图进行画框，而不是全分辨率
                     // 这样可以大幅加速图像处理
+                    let encode_start = Instant::now();
                     let display_img = if !boxes.is_empty() {
                         let box_coords: Vec<_> = boxes.iter()
                             .map(|b| {
@@ -628,7 +664,11 @@ impl DesktopCaptureService {
                     
                     // 🚀 性能优化：编码 640x640 小图，而不是全分辨率
                     // 这样可以大幅加速编码和传输
+                    let encode_end = Instant::now();
                     if let Ok(encoded) = Self::encode_image_fast(&display_img) {
+                        let encode_time = encode_end.elapsed();
+                        perf_stats.push_str(&format!(" | 编码: {:.1}ms", encode_time.as_secs_f32() * 1000.0));
+                        
                         let frame = DesktopCaptureFrame {
                             session_id: session_id_for_handle.clone(),
                             image: encoded,
@@ -644,6 +684,11 @@ impl DesktopCaptureService {
                         
                         let _ = app.emit("desktop-capture-frame", &frame);
                     }
+                    
+                    // 打印性能统计
+                    let total_time = frame_start.elapsed();
+                    perf_stats.push_str(&format!(" | 总计: {:.1}ms", total_time.as_secs_f32() * 1000.0));
+                    eprintln!("{}", perf_stats);
                     
                     frame_count += 1;
                     
