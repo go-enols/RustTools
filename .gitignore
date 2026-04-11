@@ -74,4 +74,8 @@ coverage/
 
 # YOLO model files
 *.pt
-*.md
+
+# 忽略特定的无用markdown文件
+# 注意：保留重要文档
+# README.md
+# *.md 文件通常用于项目文档，不应该全局忽略
