@@ -157,7 +157,7 @@ impl DesktopCaptureService {
             resolved_path.display()
         );
         
-        // Load and compile model ONCE
+        // Load and compile model ONCE with optimization
         let model = tract_onnx::onnx()
             .model_for_path(&resolved_path)
             .map_err(|e| format!("Failed to load model: {}", e))?
@@ -165,10 +165,12 @@ impl DesktopCaptureService {
             .map_err(|e| format!("Failed to configure input: {}", e))?
             .into_typed()
             .map_err(|e| format!("Failed to type model: {}", e))?
+            .into_optimized()  // 🚀 关键优化：应用图优化！
+            .map_err(|e| format!("Failed to optimize model: {}", e))?
             .into_runnable()
             .map_err(|e| format!("Failed to compile model: {}", e))?;
         
-        eprintln!("[Desktop] Model compiled successfully");
+        eprintln!("[Desktop] Model compiled and optimized successfully");
         
         Ok(model)
     }
