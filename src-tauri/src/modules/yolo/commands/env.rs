@@ -6,6 +6,9 @@ use once_cell::sync::Lazy;
 // Cache for Python environment info
 static PYTHON_ENV_CACHE: Lazy<Mutex<Option<PythonEnvInfo>>> = Lazy::new(|| Mutex::new(None));
 
+// Cache for Rust environment info
+static RUST_ENV_CACHE: Lazy<Mutex<Option<RustEnvInfo>>> = Lazy::new(|| Mutex::new(None));
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PythonEnvInfo {
     pub python_exists: bool,
@@ -20,10 +23,32 @@ pub struct PythonEnvInfo {
     pub yolo_command_exists: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RustEnvInfo {
+    pub rust_exists: bool,
+    pub rustc_version: Option<String>,
+    pub cargo_version: Option<String>,
+    pub burn_available: bool,
+    pub burn_version: Option<String>,
+    pub cuda_available: bool,
+    pub cuda_version: Option<String>,
+    pub gpu_count: u32,
+    pub gpu_names: Vec<String>,
+    pub network_available: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct EnvCheckResponse {
     pub success: bool,
     pub data: Option<PythonEnvInfo>,
+    pub error: Option<String>,
+    pub from_cache: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RustEnvCheckResponse {
+    pub success: bool,
+    pub data: Option<RustEnvInfo>,
     pub error: Option<String>,
     pub from_cache: bool,
 }
@@ -77,6 +102,184 @@ pub async fn check_python_env(force_refresh: bool) -> Result<EnvCheckResponse, S
         error: None,
         from_cache: false,
     })
+}
+
+/// Check Rust/Burn environment status (with caching)
+#[tauri::command]
+pub async fn check_rust_env(force_refresh: bool) -> Result<RustEnvCheckResponse, String> {
+    // If not forcing refresh, check cache first
+    if !force_refresh {
+        if let Ok(cache) = RUST_ENV_CACHE.lock() {
+            if let Some(ref cached_info) = *cache {
+                return Ok(RustEnvCheckResponse {
+                    success: true,
+                    data: Some(cached_info.clone()),
+                    error: None,
+                    from_cache: true,
+                });
+            }
+        }
+    }
+
+    // Perform environment check
+    let rust_info = check_rust();
+    let burn_info = check_burn();
+    let gpu_info = check_gpu();
+    let network_info = check_network();
+
+    let env_info = RustEnvInfo {
+        rust_exists: rust_info.0,
+        rustc_version: rust_info.1,
+        cargo_version: rust_info.2,
+        burn_available: burn_info.0,
+        burn_version: burn_info.1,
+        cuda_available: gpu_info.0,
+        cuda_version: gpu_info.1,
+        gpu_count: gpu_info.2,
+        gpu_names: gpu_info.3,
+        network_available: network_info,
+    };
+
+    // Update cache
+    if let Ok(mut cache) = RUST_ENV_CACHE.lock() {
+        *cache = Some(env_info.clone());
+    }
+
+    Ok(RustEnvCheckResponse {
+        success: true,
+        data: Some(env_info),
+        error: None,
+        from_cache: false,
+    })
+}
+
+/// Clear Rust environment cache (force recheck)
+#[tauri::command]
+pub fn clear_rust_env_cache() -> Result<RustEnvCheckResponse, String> {
+    if let Ok(mut cache) = RUST_ENV_CACHE.lock() {
+        *cache = None;
+    }
+
+    Ok(RustEnvCheckResponse {
+        success: true,
+        data: None,
+        error: None,
+        from_cache: false,
+    })
+}
+
+fn check_rust() -> (bool, Option<String>, Option<String>) {
+    // Check rustc
+    let rustc_output = Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok();
+    
+    let (rust_exists, rustc_version) = match &rustc_output {
+        Some(o) if o.status.success() => {
+            let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            (true, Some(version))
+        }
+        _ => (false, None),
+    };
+    
+    // Check cargo
+    let cargo_output = Command::new("cargo")
+        .arg("--version")
+        .output()
+        .ok();
+    
+    let cargo_version = cargo_output.as_ref().and_then(|o| {
+        if o.status.success() {
+            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+        } else {
+            None
+        }
+    });
+    
+    (rust_exists, rustc_version, cargo_version)
+}
+
+fn check_burn() -> (bool, Option<String>) {
+    // Check if burn crate is available by checking cargo metadata
+    // Since burn is compiled into the app, we report it as available
+    // The actual version would be from Cargo.toml
+    let output = Command::new("cargo")
+        .args(["search", "burn", "--limit", "1"])
+        .output()
+        .ok();
+    
+    match output {
+        Some(o) if o.status.success() => {
+            let output_str = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            // Parse burn version from search results
+            if output_str.contains("burn = ") {
+                // Extract version from "burn = \"x.y.z\""
+                if let Some(start) = output_str.find("burn = \"") {
+                    let version_part = &output_str[start+8..];
+                    if let Some(end) = version_part.find('"') {
+                        let version = &version_part[..end];
+                        return (true, Some(version.to_string()));
+                    }
+                }
+            }
+            // If we can't parse, report as available with unknown version
+            (true, Some("0.5.x (compiled)".to_string()))
+        }
+        _ => (false, None),
+    }
+}
+
+fn check_gpu() -> (bool, Option<String>, u32, Vec<String>) {
+    // Check NVIDIA CUDA
+    let nvidia_smi_output = Command::new("nvidia-smi")
+        .arg("--query-gpu=name,driver_version,memory.total")
+        .arg("--format=csv,noheader")
+        .output();
+    
+    match nvidia_smi_output {
+        Ok(o) if o.status.success() => {
+            let output_str = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            let lines: Vec<&str> = output_str.lines().collect();
+            let gpu_count = lines.len() as u32;
+            let gpu_names: Vec<String> = lines.iter()
+                .map(|l| l.split(',').next().unwrap_or("Unknown").trim().to_string())
+                .collect();
+            
+            // Get CUDA version
+            let cuda_version = check_cuda_driver_version();
+            
+            (true, cuda_version, gpu_count, gpu_names)
+        }
+        _ => (false, None, 0, Vec::new()),
+    }
+}
+
+fn check_cuda_driver_version() -> Option<String> {
+    let output = Command::new("nvidia-smi")
+        .arg("--query-gpu=driver_version")
+        .arg("--format=csv,noheader")
+        .output()
+        .ok()?;
+    
+    if output.status.success() {
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Some(version)
+    } else {
+        None
+    }
+}
+
+fn check_network() -> bool {
+    // Check if network is available by trying to reach a known host
+    let output = Command::new("ping")
+        .args(["-n", "1", "-w", "1000", "8.8.8.8"])
+        .output();
+    
+    match output {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
 }
 
 /// Get cached Python environment info without performing check

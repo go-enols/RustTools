@@ -12,6 +12,7 @@ pub mod desktop_performance_test;
 pub mod burn_trainer;  // Burn原生YOLO训练器 - 纯Rust实现
 pub mod yolo_dataset;  // YOLO数据集加载器
 pub mod yolo_loss;     // YOLO损失函数
+pub mod env;          // Rust环境检测模块
 // pub mod yolo_gpu_inference;  // 待完善 tch-rs 集成
 // pub mod async_desktop_capture;  // 有线程安全问题，暂时禁用
 // pub mod high_perf_yolo;  // 需要 burn 依赖，暂时禁用
