@@ -5,6 +5,7 @@ pub mod device;
 pub mod desktop_capture;
 pub mod inference_engine;
 pub mod model_converter;
+pub mod model_optimizer;
 pub mod yolo_inference_core;
 pub mod desktop_performance_test;
 
