@@ -195,13 +195,84 @@ impl TrainerService {
     }
     
     /// 下载预训练模型
-    pub async fn download_model<F>(&self, model_name: &str, _progress_callback: F) -> Result<String, String> 
+    pub async fn download_model<F>(&self, model_name: &str, progress_callback: F) -> Result<String, String> 
     where
         F: Fn(String) + Send + 'static,
     {
-        // 注意：这里需要实现模型下载逻辑
-        // 可以使用 reqwest 库从 HuggingFace 或其他源下载预训练模型
-        Err(format!("Model download not yet implemented for: {}", model_name))
+        use reqwest;
+        use futures_util::StreamExt;
+        
+        progress_callback(format!("开始下载模型: {}", model_name));
+        
+        // YOLO预训练模型映射
+        let model_urls = HashMap::from([
+            ("yolov8n", "https://huggingface.co/onnxruntime/yolov8n/resolve/main/yolov8n.onnx"),
+            ("yolov8s", "https://huggingface.co/onnxruntime/yolov8s/resolve/main/yolov8s.onnx"),
+            ("yolov8m", "https://huggingface.co/onnxruntime/yolov8m/resolve/main/yolov8m.onnx"),
+            ("yolov8l", "https://huggingface.co/onnxruntime/yolov8l/resolve/main/yolov8l.onnx"),
+            ("yolov8x", "https://huggingface.co/onnxruntime/yolov8x/resolve/main/yolov8x.onnx"),
+            ("yolov8n-pose", "https://huggingface.co/onnxruntime/yolov8n-pose/resolve/main/yolov8n-pose.onnx"),
+        ]);
+        
+        let url = model_urls.get(model_name.to_lowercase().as_str())
+            .ok_or_else(|| format!("未知的模型: {}", model_name))?;
+        
+        progress_callback(format!("从 HuggingFace 下载: {}", url));
+        
+        // 创建下载目录
+        let models_dir = Self::get_models_dir();
+        fs::create_dir_all(&models_dir)
+            .map_err(|e| format!("创建模型目录失败: {}", e))?;
+        
+        let model_path = models_dir.join(format!("{}.onnx", model_name));
+        
+        // 如果模型已存在，直接返回
+        if model_path.exists() {
+            progress_callback(format!("模型已存在: {:?}", model_path));
+            return Ok(model_path.to_string_lossy().to_string());
+        }
+        
+        // 下载模型
+        let client = reqwest::Client::new();
+        let response = client.get(*url)
+            .send()
+            .await
+            .map_err(|e| format!("下载失败: {}", e))?;
+        
+        let total_size = response.content_length()
+            .ok_or("无法获取文件大小")?;
+        
+        progress_callback(format!("文件大小: {:.2} MB", total_size as f64 / 1024.0 / 1024.0));
+        
+        let mut file = fs::File::create(&model_path)
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+        
+        let mut downloaded: u64 = 0;
+        let mut stream = response.bytes_stream();
+        
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::File::create(&model_path)
+            .await
+            .map_err(|e| format!("创建文件失败: {}", e))?;
+        
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("读取数据失败: {}", e))?;
+            file.write_all(&chunk).await
+                .map_err(|e| format!("写入文件失败: {}", e))?;
+            
+            downloaded += chunk.len() as u64;
+            let progress = (downloaded as f64 / total_size as f64 * 100.0) as u32;
+            if downloaded % (1024 * 1024) < chunk.len() as u64 { // 每MB报告一次
+                progress_callback(format!("下载进度: {}%", progress));
+            }
+        }
+        
+        file.flush().await
+            .map_err(|e| format!("刷新文件失败: {}", e))?;
+        
+        progress_callback(format!("下载完成: {:?}", model_path));
+        
+        Ok(model_path.to_string_lossy().to_string())
     }
     
     /// 启动纯Rust训练 - 使用Burn框架
