@@ -37,21 +37,27 @@ dirs = "5.0"
 serde_yaml = "0.9"
 
 # 屏幕捕获
-# scrap = "0.2"  # 高性能屏幕捕获（异步）
-xcap = "0.1"      # 当前使用的屏幕捕获
+scrap = "0.2"  # 高性能屏幕捕获（零拷贝）
+xcap = "0.1"  # 备用捕获库
 
 # 图像处理
 image = "0.25"
 ndarray = "0.16"
 
-# Tract ONNX Runtime (pure Rust) - CPU推理
-tract-onnx = "0.22.0"
+# Burn - Rust 原生深度学习框架（GPU 加速）
+burn = "0.5"
+burn-ndarray = "0.5"  # ndarray CPU 后端
+# burn-wgpu = "0.5"   # WebGPU GPU 后端（需要 Vulkan SDK）
+# burn-cudarc = "0.5" # CUDA GPU 后端（需要 CUDA Toolkit）
 
-# PyTorch Rust bindings - GPU加速推理（待完善）
-# 注意：tch-rs 需要 libtorch（会自动下载 ~200MB）
+# Tch-rs - PyTorch Rust 绑定（模型转换）
+# 注意：tch 需要 libtorch（会自动下载 ~200MB）
 # 在 Windows 上需要 CUDA 11.8 或 12.1
 # 设置环境变量 LIBTORCH=/path/to/libtorch 或让 tch 自动下载
-# tch = "0.5"  # 暂时注释，需要更多工作来适配 tch 0.5 的新 API
+tch = "0.5"
+
+# Tract ONNX Runtime (pure Rust) - 备用 CPU 推理
+tract-onnx = "0.22.0"
 
 # 视频处理 (使用命令行ffmpeg)
 # ffmpeg-next = "7.0"

@@ -12,8 +12,13 @@ pub mod desktop_performance_test;
 // pub mod yolo_gpu_inference;  // 待完善 tch-rs 集成
 pub mod async_desktop_capture;
 // pub mod high_perf_yolo;  // 需要 burn 依赖，暂时禁用
-pub mod zero_copy_capture;
-pub mod opt_capture;
+// 注意：ort (ONNX Runtime) 依赖暂时禁用
+// pub mod zero_copy_capture;
+// pub mod opt_capture;  // 有编译错误 - 待修复
+// pub mod high_performance_desktop_capture;  // 待完善
+// pub mod rust_native_yolo;  // 已删除 - 使用 scrap_capture.rs
+// pub mod scrap_capture;  // 暂时禁用 - scrap API 版本不匹配
+pub mod scrap_burn_yolo;  // scrap + burn + tch-rs 高性能推理
 
 pub use trainer::{TrainerService, TrainingEvent};
 pub use video::VideoService;
