@@ -291,13 +291,12 @@ impl DesktopCaptureService {
         let num_classes = if num_features > 4 {
             num_features - 4
         } else {
-            return Err(format!("Invalid output shape: expected 84 features (4 bbox + 80 classes), got {}", num_features));
+            return Err(format!("Invalid output shape: expected at least 5 features (4 bbox + classes), got {}", num_features));
         };
         
-        // 如果是 YOLOv8 格式 [1, 84, 8400]，打印日志（仅在第一次推理时）
-        if num_features == 84 && num_boxes == 8400 {
-            eprintln!("[Desktop] 检测到 YOLOv8 格式输出 [1, 84, 8400]");
-        }
+        // 打印模型信息
+        eprintln!("[Desktop] 模型信息: features={}, classes={}, boxes={}", 
+            num_features, num_classes, num_boxes);
         
         let scale_x = orig_width as f32 / 640.0;
         let scale_y = orig_height as f32 / 640.0;
@@ -309,9 +308,14 @@ impl DesktopCaptureService {
         let postprocess_start = Instant::now();
         let mut detections = Vec::with_capacity(100); // Pre-allocate
         
+        // 调试：查看所有类别分数的最大值
+        let mut max_score_overall = 0.0f32;
+        let mut max_score_class = 0usize;
+        let mut max_score_box_idx = 0usize;
+        
         // YOLOv8 格式: [batch, features, boxes]
         // features[0:4] = bbox (cx, cy, w, h)
-        // features[4:84] = class scores (80 classes)
+        // features[4:features] = class scores
         for i in 0..num_boxes {
             // 找最大类别分数
             let mut max_score = 0.0f32;
@@ -324,6 +328,13 @@ impl DesktopCaptureService {
                     max_score = score;
                     max_class = c;
                 }
+            }
+            
+            // 记录全局最大分数
+            if max_score > max_score_overall {
+                max_score_overall = max_score;
+                max_score_class = max_class;
+                max_score_box_idx = i;
             }
             
             // 应用置信度阈值（YOLOv8 的 score 已经是 sigmoid 后的值，在 0-1 之间）
@@ -350,6 +361,11 @@ impl DesktopCaptureService {
                 detections.push((x1, y1, x2, y2, max_score, max_class));
             }
         }
+        // 打印调试信息
+        eprintln!("[DEBUG] 全局最大分数: {:.4} (类别 {}, 框 {})", 
+            max_score_overall, max_score_class, max_score_box_idx);
+        eprintln!("[DEBUG] 置信度阈值: {}", confidence);
+        
         let postprocess_time = postprocess_start.elapsed();
         
         // 保存原始检测数量(在移动之前)
