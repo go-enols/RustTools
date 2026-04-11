@@ -58,6 +58,7 @@ pub struct TrainingCompleteEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrainingConfig {
+    pub name: String,
     pub base_model: String,
     pub epochs: u32,
     pub batch_size: u32,
@@ -127,6 +128,7 @@ pub async fn training_start(
 ) -> Result<CommandResponse<String>, String> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     let request = TrainingRequest {
+        name: config.name.clone(),
         base_model: config.base_model,
         epochs: config.epochs,
         batch_size: config.batch_size,
@@ -169,7 +171,7 @@ pub async fn training_start(
             tokio::spawn(async move {
                 while let Some(event) = event_rx.recv().await {
                     match event {
-                        TrainingEvent::Started { training_id, total_epochs, cuda_available, cuda_version } => {
+                        TrainingEvent::Started { training_id, total_epochs, cuda_available } => {
                             eprintln!(
                                 "[Trainer] Training started: id={}, total_epochs={}",
                                 training_id, total_epochs
@@ -177,60 +179,65 @@ pub async fn training_start(
                             let event = TrainingStartedEvent {
                                 training_id,
                                 cuda_available,
-                                cuda_version,
+                                cuda_version: None, // Burn不提供CUDA版本信息
                             };
                             let _ = app_clone.emit("training-started", event);
                         }
-                        TrainingEvent::BatchProgress {
-                            training_id,
-                            epoch,
-                            total_epochs,
-                            batch,
-                            total_batches,
-                            box_loss,
-                            cls_loss,
-                            dfl_loss,
-                            learning_rate,
-                        } => {
+                        TrainingEvent::BatchProgress(state) => {
                             let event = TrainingBatchProgressEvent {
-                                training_id,
-                                epoch,
-                                total_epochs,
-                                batch,
-                                total_batches,
-                                box_loss,
-                                cls_loss,
-                                dfl_loss,
-                                learning_rate,
+                                training_id: "".to_string(), // TrainingState没有training_id
+                                epoch: state.epoch,
+                                total_epochs: state.total_epochs,
+                                batch: state.batch,
+                                total_batches: state.total_batches,
+                                box_loss: state.box_loss,
+                                cls_loss: state.cls_loss,
+                                dfl_loss: state.dfl_loss,
+                                learning_rate: state.learning_rate,
                             };
                             let _ = app_clone.emit("training-batch-progress", event);
                         }
-                        TrainingEvent::Progress { training_id, status } => {
+                        TrainingEvent::EpochComplete {
+                            epoch,
+                            box_loss,
+                            cls_loss,
+                            total_loss,
+                            map50,
+                        } => {
                             let event = TrainingProgressEvent {
-                                training_id,
-                                epoch: status.epoch,
-                                total_epochs: status.total_epochs,
-                                progress_percent: status.progress_percent,
-                                metrics: status.metrics,
+                                training_id: "".to_string(),
+                                epoch,
+                                total_epochs: 0,
+                                progress_percent: 0.0,
+                                metrics: TrainingMetrics {
+                                    train_box_loss: box_loss,
+                                    train_cls_loss: cls_loss,
+                                    train_dfl_loss: total_loss,
+                                    val_box_loss: 0.0,
+                                    val_cls_loss: 0.0,
+                                    val_dfl_loss: 0.0,
+                                    precision: 0.0,
+                                    recall: 0.0,
+                                    map50: map50.unwrap_or(0.0),
+                                    map50_95: 0.0,
+                                    learning_rate: 0.0,
+                                },
                             };
                             let _ = app_clone.emit("training-progress", event);
                         }
-                        TrainingEvent::Complete {
-                            training_id,
-                            model_path,
-                        } => {
+                        TrainingEvent::Complete { model_path } => {
                             let event = TrainingCompleteEvent {
-                                training_id,
+                                training_id: "".to_string(),
                                 success: true,
-                                model_path,
+                                model_path: Some(model_path),
                                 error: None,
                             };
                             let _ = app_clone.emit("training-complete", event);
                             break;
                         }
-                        TrainingEvent::Error { training_id, error } => {
+                        TrainingEvent::Error { error } => {
                             let event = TrainingCompleteEvent {
-                                training_id,
+                                training_id: "".to_string(),
                                 success: false,
                                 model_path: None,
                                 error: Some(error),
@@ -238,9 +245,9 @@ pub async fn training_start(
                             let _ = app_clone.emit("training-complete", event);
                             break;
                         }
-                        TrainingEvent::Stopped { training_id } => {
+                        TrainingEvent::Stopped => {
                             let event = TrainingCompleteEvent {
-                                training_id,
+                                training_id: "".to_string(),
                                 success: false,
                                 model_path: None,
                                 error: Some("训练已停止".to_string()),
