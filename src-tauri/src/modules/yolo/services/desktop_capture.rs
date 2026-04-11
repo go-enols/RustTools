@@ -157,20 +157,20 @@ impl DesktopCaptureService {
             resolved_path.display()
         );
         
-        // Load and compile model ONCE with optimization
+        // Load and compile model ONCE with FULL optimization
         let model = tract_onnx::onnx()
             .model_for_path(&resolved_path)
             .map_err(|e| format!("Failed to load model: {}", e))?
-            .with_input_fact(0, f32::fact(&[1, 3, 640, 640]).into())
+            .with_input_fact(0, f32::fact(&[1, 3, 320, 320]).into())  // 修改为320x320
             .map_err(|e| format!("Failed to configure input: {}", e))?
             .into_typed()
             .map_err(|e| format!("Failed to type model: {}", e))?
-            .into_optimized()  // 🚀 关键优化：应用图优化！
+            .into_optimized()  // 基础优化
             .map_err(|e| format!("Failed to optimize model: {}", e))?
-            .into_runnable()
+            .into_runnable()   // 编译为可执行
             .map_err(|e| format!("Failed to compile model: {}", e))?;
         
-        eprintln!("[Desktop] Model compiled and optimized successfully");
+        eprintln!("[Desktop] Model compiled for 320x320 input");
         
         Ok(model)
     }
@@ -204,22 +204,22 @@ impl DesktopCaptureService {
             .map_err(|e| format!("Failed to create tensor: {}", e))
     }
     
-    /// 🚀 超快图像预处理 - 假设输入已经是 640x640
+    /// 🚀 超快图像预处理 - 320x320版本
     /// 跳过 resize 步骤，直接进行归一化和格式转换
-    fn preprocess_image_fast_fixed(img: &DynamicImage) -> Result<Tensor, String> {
+    fn preprocess_image_320x320(img: &DynamicImage) -> Result<Tensor, String> {
         let rgb = img.to_rgb8();
         let (height, width) = rgb.dimensions();
         
-        // 验证图像尺寸（应该是 640x640）
-        debug_assert_eq!(height, 640, "Image height should be 640");
-        debug_assert_eq!(width, 640, "Image width should be 640");
+        // 验证图像尺寸（应该是 320x320）
+        debug_assert_eq!(height, 320, "Image height should be 320");
+        debug_assert_eq!(width, 320, "Image width should be 320");
         
-        // Pre-allocate with exact capacity (固定大小 640*640*3)
-        let mut data = vec![0.0f32; 3 * 640 * 640];
+        // Pre-allocate with exact capacity (固定大小 320*320*3)
+        let mut data = vec![0.0f32; 3 * 320 * 320];
         
-        // Fast RGB to BGR conversion with pre-computed indices
+        // Fast RGB to BGR conversion
         let pixels = rgb.as_raw();
-        let area = 640 * 640;
+        let area = 320 * 320;
         
         for i in 0..area {
             let src_idx = i * 3;
@@ -229,11 +229,11 @@ impl DesktopCaptureService {
             data[2 * area + i] = pixels[src_idx] as f32 / 255.0;   // B -> R
         }
         
-        Tensor::from_shape(&[1, 3, 640, 640], &data)
+        Tensor::from_shape(&[1, 3, 320, 320], &data)
             .map_err(|e| format!("Failed to create tensor: {}", e))
     }
     
-    /// Run YOLO inference (optimized) - 支持 YOLOv8 格式 [1, 84, 8400]
+    /// Run YOLO inference (optimized for 320x320 input)
     /// 
     /// 修复说明：
     /// - YOLOv8 输出格式: [batch, features, boxes] 即 [1, 84, 8400]
@@ -246,9 +246,9 @@ impl DesktopCaptureService {
         orig_width: u32,
         orig_height: u32,
     ) -> Result<Vec<(f32, f32, f32, f32, f32, usize)>, String> {
-        // 预处理
+        // 预处理: 320x320 图像
         let preprocess_start = Instant::now();
-        let input = Self::preprocess_image_fast_fixed(img)?;
+        let input = Self::preprocess_image_320x320(img)?;
         let preprocess_time = preprocess_start.elapsed();
         
         // 模型推理
@@ -298,8 +298,9 @@ impl DesktopCaptureService {
         eprintln!("[Desktop] 模型信息: features={}, classes={}, boxes={}", 
             num_features, num_classes, num_boxes);
         
-        let scale_x = orig_width as f32 / 640.0;
-        let scale_y = orig_height as f32 / 640.0;
+        // 缩放因子（基于320x320输入）
+        let scale_x = orig_width as f32 / 320.0;
+        let scale_y = orig_height as f32 / 320.0;
         
         let output_data = output.to_array_view::<f32>()
             .map_err(|e| format!("Failed to access output: {}", e))?;
@@ -345,8 +346,8 @@ impl DesktopCaptureService {
                 let w = output_data[[0, 2, i]];
                 let h = output_data[[0, 3, i]];
                 
-                // YOLOv8 格式: bbox 坐标已经是绝对像素值 (0-640)
-                // 不需要乘以 640！
+                // YOLOv8 格式: bbox 坐标已经是绝对像素值 (0-320)
+                // 不需要乘以 320！
                 let cx_abs = cx;  // 已经是绝对坐标
                 let cy_abs = cy;
                 let w_abs = w;
@@ -355,8 +356,8 @@ impl DesktopCaptureService {
                 // 转换为 [x1, y1, x2, y2] 格式
                 let x1 = (cx_abs - w_abs / 2.0).max(0.0) * scale_x;
                 let y1 = (cy_abs - h_abs / 2.0).max(0.0) * scale_y;
-                let x2 = (cx_abs + w_abs / 2.0).min(640.0) * scale_x;
-                let y2 = (cy_abs + h_abs / 2.0).min(640.0) * scale_y;
+                let x2 = (cx_abs + w_abs / 2.0).min(320.0) * scale_x;  // 从640改为320
+                let y2 = (cy_abs + h_abs / 2.0).min(320.0) * scale_y;  // 从640改为320
                 
                 detections.push((x1, y1, x2, y2, max_score, max_class));
             }
@@ -612,16 +613,20 @@ impl DesktopCaptureService {
                     let (orig_width, orig_height) = captured.dimensions();
                     let orig_img = DynamicImage::ImageRgba8(captured);
                     
-                    // 🚀 性能优化：立即 resize 到 640x640 用于推理
+                    // 🚀 性能优化：立即 resize 到 320x320 用于推理（从640降低到320，提升8倍速度）
                     // 这样可以大幅减少内存占用和推理时间
                     let resize_start = Instant::now();
                     let inference_img = orig_img.resize_exact(
-                        640u32, 
-                        640u32, 
+                        320u32,   // 从640降低到320
+                        320u32,   // 从640降低到320
                         FilterType::Nearest  // 使用 Nearest Neighbor 加速 resize
                     );
                     let resize_time = resize_start.elapsed();
                     perf_stats.push_str(&format!(" | Resize: {:.1}ms", resize_time.as_secs_f32() * 1000.0));
+                    
+                    // 坐标缩放因子（现在基于320x320）
+                    let scale_x_for_inference = orig_width as f32 / 320.0;
+                    let scale_y_for_inference = orig_height as f32 / 320.0;
                     
                     // Run inference if model is loaded
                     // 使用 640x640 小图进行推理，而不是全分辨率
@@ -670,15 +675,15 @@ impl DesktopCaptureService {
                     let inference_time = inference_start.elapsed();
                     perf_stats.push_str(&format!(" | 推理: {:.1}ms", inference_time.as_secs_f32() * 1000.0));
                     
-                    // 🚀 性能优化：使用 640x640 小图进行画框，而不是全分辨率
+                    // 🚀 性能优化：使用 320x320 小图进行画框，而不是全分辨率
                     // 这样可以大幅加速图像处理
                     let encode_start = Instant::now();
                     let display_img = if !boxes.is_empty() {
                         let box_coords: Vec<_> = boxes.iter()
                             .map(|b| {
-                                // 将检测框坐标映射到 640x640 空间
-                                let scale_x = 640.0 / orig_width as f32;
-                                let scale_y = 640.0 / orig_height as f32;
+                                // 将检测框坐标映射到 320x320 空间
+                                let scale_x = 320.0 / orig_width as f32;  // 从640改为320
+                                let scale_y = 320.0 / orig_height as f32;  // 从640改为320
                                 (
                                     b.x * scale_x,
                                     b.y * scale_y,
@@ -694,7 +699,7 @@ impl DesktopCaptureService {
                         inference_img
                     };
                     
-                    // 🚀 性能优化：编码 640x640 小图，而不是全分辨率
+                    // 🚀 性能优化：编码 320x320 小图，而不是全分辨率
                     // 这样可以大幅加速编码和传输
                     let encode_end = Instant::now();
                     if let Ok(encoded) = Self::encode_image_fast(&display_img) {
@@ -705,8 +710,8 @@ impl DesktopCaptureService {
                             session_id: session_id_for_handle.clone(),
                             image: encoded,
                             boxes,
-                            width: 640,  // 返回 640x640 的宽度
-                            height: 640, // 返回 640x640 的高度
+                            width: 320,   // 返回 320x320 的宽度
+                            height: 320,  // 返回 320x320 的高度
                             fps: current_fps,
                             timestamp: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
