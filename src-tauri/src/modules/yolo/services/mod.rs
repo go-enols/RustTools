@@ -9,6 +9,11 @@ pub mod model_converter;
 pub mod model_optimizer;
 pub mod yolo_inference_core;
 pub mod desktop_performance_test;
+// pub mod yolo_gpu_inference;  // 待完善 tch-rs 集成
+pub mod async_desktop_capture;
+// pub mod high_perf_yolo;  // 需要 burn 依赖，暂时禁用
+pub mod zero_copy_capture;
+pub mod opt_capture;
 
 pub use trainer::{TrainerService, TrainingEvent};
 pub use video::VideoService;
@@ -26,3 +31,4 @@ pub use yolo_inference_core::{
     InferenceConfig,
     DetectionBox as CoreDetectionBox,
 };
+pub use async_desktop_capture::{AsyncDesktopCaptureService, AsyncCaptureConfig, FrameBuffer};

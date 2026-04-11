@@ -36,15 +36,22 @@ once_cell = "1.19"
 dirs = "5.0"
 serde_yaml = "0.9"
 
-# 屏幕捕获 (高性能后端)
-xcap = "0.1"
+# 屏幕捕获
+# scrap = "0.2"  # 高性能屏幕捕获（异步）
+xcap = "0.1"      # 当前使用的屏幕捕获
 
 # 图像处理
 image = "0.25"
 ndarray = "0.16"
 
-# Tract ONNX Runtime (pure Rust) - 当前使用这个因为Candle依赖冲突
+# Tract ONNX Runtime (pure Rust) - CPU推理
 tract-onnx = "0.22.0"
+
+# PyTorch Rust bindings - GPU加速推理（待完善）
+# 注意：tch-rs 需要 libtorch（会自动下载 ~200MB）
+# 在 Windows 上需要 CUDA 11.8 或 12.1
+# 设置环境变量 LIBTORCH=/path/to/libtorch 或让 tch 自动下载
+# tch = "0.5"  # 暂时注释，需要更多工作来适配 tch 0.5 的新 API
 
 # 视频处理 (使用命令行ffmpeg)
 # ffmpeg-next = "7.0"
