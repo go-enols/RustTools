@@ -258,6 +258,11 @@ impl DesktopCaptureService {
         let output = &result[0];
         let shape = output.shape();
         
+        // 调试：打印输出形状和大小
+        eprintln!("[DEBUG] Model output shape: {:?}, len: {}", shape, output.len());
+        let output_size_mb = output.len() * 4 / (1024 * 1024);
+        eprintln!("[DEBUG] Model output size: ~{} MB", output_size_mb);
+        
         if shape.len() != 3 {
             return Err(format!("Unexpected output shape: {:?}", shape));
         }
