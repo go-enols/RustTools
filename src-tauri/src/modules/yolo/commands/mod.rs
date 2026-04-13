@@ -170,6 +170,7 @@ pub async fn project_open(project_path: String) -> Result<ProjectResponse, Strin
     let path = PathBuf::from(&project_path);
     let project_yaml_path = path.join("project.yaml");
     let data_yaml_path = path.join("data.yaml");
+    let dataset_yaml_path = path.join("dataset.yaml");
 
     // Check if project directory exists
     if !path.exists() {
@@ -180,7 +181,7 @@ pub async fn project_open(project_path: String) -> Result<ProjectResponse, Strin
         });
     }
 
-    // Try project.yaml first, then data.yaml
+    // Try project.yaml first, then data.yaml, then dataset.yaml
     let (yaml_content, is_data_yaml) = if project_yaml_path.exists() {
         (
             fs::read_to_string(&project_yaml_path)
@@ -193,11 +194,17 @@ pub async fn project_open(project_path: String) -> Result<ProjectResponse, Strin
                 .map_err(|e| format!("读取data.yaml失败: {}", e))?,
             true,
         )
+    } else if dataset_yaml_path.exists() {
+        (
+            fs::read_to_string(&dataset_yaml_path)
+                .map_err(|e| format!("读取dataset.yaml失败: {}", e))?,
+            true,
+        )
     } else {
         return Ok(ProjectResponse {
             success: false,
             data: None,
-            error: Some("不是有效的YOLO项目目录（缺少project.yaml或data.yaml）".to_string()),
+            error: Some("不是有效的YOLO项目目录（缺少project.yaml、data.yaml或dataset.yaml）".to_string()),
         });
     };
 
@@ -214,14 +221,8 @@ pub async fn project_open(project_path: String) -> Result<ProjectResponse, Strin
         val_split: dataset_info.val_split,
         image_size: dataset_info.image_size,
         description: Some(format!("项目路径: {}", project_path)),
-        images: DatasetPaths {
-            train: "images/train".to_string(),
-            val: "images/val".to_string(),
-        },
-        labels: DatasetPaths {
-            train: "labels/train".to_string(),
-            val: "labels/val".to_string(),
-        },
+        images: dataset_info.images.clone(),
+        labels: dataset_info.labels.clone(),
     };
 
     // If opened from data.yaml, create project.yaml
@@ -566,6 +567,8 @@ struct DatasetInfo {
     train_split: f64,
     val_split: f64,
     image_size: i32,
+    images: DatasetPaths,
+    labels: DatasetPaths,
 }
 
 fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetInfo, String> {
@@ -575,9 +578,15 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
     let mut train_split = 0.8;
     let mut val_split = 0.2;
     let mut image_size = 640;
+    let mut images_train = String::from("images/train");
+    let mut images_val = String::from("images/val");
+    let mut labels_train = String::from("labels/train");
+    let mut labels_val = String::from("labels/val");
 
     // For ultralytics data.yaml format
     let mut in_names = false;
+    let mut in_images = false;
+    let mut in_labels = false;
 
     for line in content.lines() {
         let line = line.trim();
@@ -585,10 +594,26 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
         // Track section state for 'names:'
         if line == "names:" {
             in_names = true;
+            in_images = false;
+            in_labels = false;
+            continue;
+        } else if line == "images:" {
+            in_images = true;
+            in_names = false;
+            in_labels = false;
+            continue;
+        } else if line == "labels:" {
+            in_labels = true;
+            in_names = false;
+            in_images = false;
             continue;
         } else if in_names && line.ends_with(":") && !line.starts_with(" ") && !line.is_empty() {
             // Another top-level section
             in_names = false;
+        } else if (in_images || in_labels) && line.ends_with(":") && !line.starts_with(" ") && !line.is_empty() {
+            // Another top-level section
+            in_images = false;
+            in_labels = false;
         }
 
         // Parse names section (ultralytics format with numeric keys)
@@ -606,6 +631,26 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
             continue;
         }
 
+        // Parse images: { train: ..., val: ... } block
+        if in_images {
+            if line.starts_with("train:") {
+                images_train = line.replace("train:", "").trim().to_string();
+            } else if line.starts_with("val:") {
+                images_val = line.replace("val:", "").trim().to_string();
+            }
+            continue;
+        }
+
+        // Parse labels: { train: ..., val: ... } block
+        if in_labels {
+            if line.starts_with("train:") {
+                labels_train = line.replace("train:", "").trim().to_string();
+            } else if line.starts_with("val:") {
+                labels_val = line.replace("val:", "").trim().to_string();
+            }
+            continue;
+        }
+
         // General fields
         if line.starts_with("name:") {
             name = line.replace("name:", "").trim().to_string();
@@ -614,6 +659,22 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
         } else if line.starts_with("- ") && !line.contains(":") {
             // Class entry in project.yaml format
             classes.push(line.replace("-", "").trim().to_string());
+        } else if line.starts_with("train:") && !line.starts_with("train_split:") {
+            // Standalone train: field (e.g., "train: images" in data.yaml root-level)
+            if !in_names && !in_images {
+                let val = line.replace("train:", "").trim().to_string();
+                if !val.is_empty() {
+                    images_train = val;
+                }
+            }
+        } else if line.starts_with("val:") && !in_images {
+            // Standalone val: field
+            if !in_names && !in_labels {
+                let val = line.replace("val:", "").trim().to_string();
+                if !val.is_empty() {
+                    images_val = val;
+                }
+            }
         } else if line.starts_with("train_split:") {
             if let Ok(val) = line.replace("train_split:", "").trim().parse::<f64>() {
                 train_split = val;
@@ -626,6 +687,9 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
             if let Ok(val) = line.replace("image_size:", "").trim().parse::<i32>() {
                 image_size = val;
             }
+        } else if line.starts_with("nc:") {
+            // nc (number of classes) in ultralytics format
+            // but we get classes from names:, so skip
         }
     }
 
@@ -677,5 +741,13 @@ fn parse_dataset_yaml(content: &str, project_path: &PathBuf) -> Result<DatasetIn
         train_split,
         val_split,
         image_size,
+        images: DatasetPaths {
+            train: images_train,
+            val: images_val,
+        },
+        labels: DatasetPaths {
+            train: labels_train,
+            val: labels_val,
+        },
     })
 }
