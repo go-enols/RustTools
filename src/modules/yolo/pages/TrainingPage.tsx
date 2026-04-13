@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Settings2, RefreshCw } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { useTrainingStore, TrainingConfig } from '../../../core/stores/trainingStore';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
 import { useToast } from '../../../shared/hooks/useToast';
 import {
   checkModel,
   downloadModel,
-  checkPythonEnv,
 } from '../../../core/api';
 import { listen } from '@tauri-apps/api/event';
 import { DownloadModal } from '../../../shared/components/ui/Modal';
@@ -236,12 +235,6 @@ export default function TrainingPage() {
   };
 
   // Refresh CUDA status
-  const handleRefreshCUDA = async () => {
-    const result = await checkPythonEnv();
-    if (result.success && result.data) {
-      setCudaAvailable(result.data.cuda_available);
-    }
-  };
 
   const batchProgress = useTrainingStore((s) => s.batchProgress);
 
@@ -339,21 +332,6 @@ export default function TrainingPage() {
                     <option value={-1}>CPU (CUDA 不可用)</option>
                   )}
                 </select>
-                <button
-                  onClick={handleRefreshCUDA}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 2,
-                    color: '#94a3b8',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                  title="重新检测 CUDA"
-                >
-                  <RefreshCw size={12} />
-                </button>
               </div>
             </div>
           </div>
