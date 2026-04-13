@@ -197,10 +197,10 @@ impl TrainerService {
     
     /// 获取所有可用的预训练模型列表
     ///
-    /// 使用 ModelScope 国内镜像下载模型。
+    /// 使用 GitHub Release 直链 + mihomo 代理下载模型。
     /// 模型文件后缀统一为 .pt（与前端选型一致）。
     pub fn get_available_models() -> Vec<(&'static str, &'static str, String)> {
-        let base = "https://modelscope.cn/ultralytics/assets/releases/download/v8.4.0";
+        let base = "https://github.com/ultralytics/assets/releases/download/v8.4.0";
         vec![
             // YOLO11 检测模型
             ("yolo11n",  "检测", format!("{}/yolo11n.pt",  base)),
@@ -296,10 +296,15 @@ impl TrainerService {
             }
         }
         
-        progress_callback(format!("正在从 ModelScope 镜像下载..."));
+        progress_callback(format!("正在通过代理下载..."));
 
+        // reqwest 不读 HTTP_PROXY 环境变量，必须显式配置代理
+        let proxy_url = "http://127.0.0.1:7890";
+        let proxy = reqwest::Proxy::http(proxy_url)
+            .map_err(|e| format!("代理配置失败: {}", e))?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
+            .proxy(proxy)
             .build()
             .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
         
