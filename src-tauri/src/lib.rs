@@ -40,11 +40,6 @@ pub fn run() {
             modules::yolo::commands::train::yolo_download_model,
             modules::yolo::commands::train::model_list,
             modules::yolo::commands::train::model_delete,
-            // Env commands
-            modules::yolo::commands::env::check_python_env,
-            modules::yolo::commands::env::install_python_deps,
-            modules::yolo::commands::env::get_install_instructions,
-            modules::yolo::commands::env::get_cached_python_env,
             // File operations
             core::commands::read_text_file,
             core::commands::read_binary_file,

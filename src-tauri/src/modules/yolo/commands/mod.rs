@@ -441,7 +441,6 @@ pub async fn save_annotation(
     })
 }
 
-pub mod env;
 pub mod train;
 pub mod video;
 pub mod device;
