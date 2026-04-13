@@ -12,6 +12,121 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
+/// Proxy configuration for downloading models
+#[derive(Debug, Deserialize)]
+struct ProxyConfig {
+    proxy_url: String,
+}
+
+impl ProxyConfig {
+    /// Read proxy configuration from ~/.config/rust-tools/proxy.json
+    /// Creates default config file if it doesn't exist
+    fn load() -> Self {
+        let config_path = Self::config_path();
+        
+        // Create default config if doesn't exist
+        if !config_path.exists() {
+            if let Some(parent) = config_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let default_config = ProxyConfig {
+                proxy_url: "http://127.0.0.1:7890".to_string(),
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
+                let _ = fs::write(&config_path, json);
+                eprintln!("[Trainer] Created default proxy config at {:?}", config_path);
+            }
+            return default_config;
+        }
+        
+        // Read existing config
+        if let Ok(content) = fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str::<ProxyConfig>(&content) {
+                return config;
+            }
+        }
+        
+        // Fallback to default
+        eprintln!("[Trainer] Failed to read proxy config, using default");
+        ProxyConfig {
+            proxy_url: "http://127.0.0.1:7890".to_string(),
+        }
+    }
+    
+    fn config_path() -> PathBuf {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(home)
+            .join(".config")
+            .join("rust-tools")
+            .join("proxy.json")
+    }
+}
+
+/// Detect if CUDA is available by checking for nvidia-smi or CUDA environment
+fn is_cuda_available() -> bool {
+    // Check if nvidia-smi exists and works
+    if std::process::Command::new("nvidia-smi")
+        .arg("--query-gpu=name")
+        .arg("--format=csv,noheader")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("[Trainer] CUDA detected via nvidia-smi");
+        return true;
+    }
+    
+    // Check CUDA_VISIBLE_DEVICES environment variable
+    if std::env::var("CUDA_VISIBLE_DEVICES").is_ok() {
+        eprintln!("[Trainer] CUDA detected via CUDA_VISIBLE_DEVICES");
+        return true;
+    }
+    
+    // Check for CUDA libraries
+    #[cfg(unix)]
+    {
+        use std::path::Path;
+        let possible_paths = [
+            "/usr/local/cuda/lib64",
+            "/usr/lib/x86_64-linux-gnu",
+        ];
+        for path in possible_paths {
+            if Path::new(path).exists() && Path::new(path).join("libcuda.so").exists() {
+                eprintln!("[Trainer] CUDA detected via library path");
+                return true;
+            }
+        }
+    }
+    
+    eprintln!("[Trainer] CUDA not available, using CPU");
+    false
+}
+
+/// Helper struct to parse data.yaml for YOLO training config
+#[derive(Debug, Deserialize)]
+struct YoloDataYaml {
+    nc: Option<usize>,
+}
+
+impl YoloDataYaml {
+    fn num_classes_from_path(project_path: &str) -> Option<usize> {
+        let data_yaml_path = PathBuf::from(project_path).join("data.yaml");
+        if !data_yaml_path.exists() {
+            eprintln!("[Trainer] data.yaml not found at {:?}", data_yaml_path);
+            return None;
+        }
+        let content = fs::read_to_string(&data_yaml_path)
+            .map_err(|e| eprintln!("[Trainer] Failed to read data.yaml: {}", e))
+            .ok()?;
+        let yaml: YoloDataYaml = serde_yaml::from_str(&content)
+            .map_err(|e| eprintln!("[Trainer] Failed to parse data.yaml: {}", e))
+            .ok()?;
+        yaml.nc
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainedModelInfo {
     pub id: String,
@@ -299,8 +414,8 @@ impl TrainerService {
         progress_callback(format!("正在通过代理下载..."));
 
         // reqwest 不读 HTTP_PROXY 环境变量，必须显式配置代理
-        let proxy_url = "http://127.0.0.1:7890";
-        let proxy = reqwest::Proxy::http(proxy_url)
+        let proxy_config = ProxyConfig::load();
+        let proxy = reqwest::Proxy::http(&proxy_config.proxy_url)
             .map_err(|e| format!("代理配置失败: {}", e))?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -451,7 +566,7 @@ impl TrainerService {
         event_tx.send(TrainingEvent::Started {
             training_id: training_id.clone(),
             total_epochs: request.epochs,
-            cuda_available: false, // TODO: 检测CUDA
+            cuda_available: is_cuda_available(),
         }).map_err(|e| format!("Failed to send started event: {}", e))?;
         
         // 在后台spawn训练任务
@@ -547,7 +662,7 @@ impl TrainerService {
             epochs: request.epochs,
             batch_size: request.batch_size,
             image_size: request.image_size as usize,
-            num_classes: 80, // TODO: 从data.yaml读取
+            num_classes: YoloDataYaml::num_classes_from_path(&project_path).unwrap_or(80),
             optimizer: request.optimizer.clone(),
             learning_rate: request.lr0,
             weight_decay: request.weight_decay,
