@@ -38,8 +38,6 @@ pub fn run() {
             modules::yolo::commands::train::training_start,
             modules::yolo::commands::train::yolo_check_model,
             modules::yolo::commands::train::yolo_download_model,
-            modules::yolo::commands::train::model_list,
-            modules::yolo::commands::train::model_delete,
             // File operations
             core::commands::read_text_file,
             core::commands::read_binary_file,

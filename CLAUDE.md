@@ -1,164 +1,49 @@
-# MyRustTools 开发规范
+# RustTools — YOLO Desktop App
 
-## 开发语言
+## Project Stack
+- **Backend**: Rust + Tauri 2.x, Burn framework for ML training
+- **Frontend**: React 18 + TypeScript + Vite
+- **ML**: YOLO models (YOLOv8/11/12), pure Rust inference via Burn/onnxruntime-rs
+- **Styling**: CSS Modules (no Tailwind, no inline styles in new code)
+- **State**: Zustand for frontend state management
 
-# MyRustTools 开发规范（Agent 指南）
-
-## 开发语言
-
-**所有开发对话必须使用中文**
-
----
-
-## 架构文档位置（重要）
-
-- 项目的详细架构说明（模块结构、接口规范、状态管理、约束与演进路线）已移至仓库根的 `README.md`。
-- 请将 `README.md` 作为“事实性”架构来源（Source of Truth），不要在 `CLAUDE.md` 中重复完整架构说明。
-
----
-
-## 给 agent 的操作指南（何时做、如何做）
-
-- 任务规划：任何多步骤任务必须先使用 `manage_todo_list` 创建并维护 TODO 列表。
-- 编辑代码：使用 `apply_patch`（遵循 repo 的 applyPatchInstructions）对文件做修改；每次改动后运行相关测试并调用 `code-reviewer` 进行审查。
-- 模块开发：新增模块需在 `modules/<name>/manifest.ts` 定义清单，并在模块入口注册（`moduleRegistry.register()`）。不要直接修改 `core/`。
-- 后端命令：在 `src-tauri/src/modules/<mod>/commands/` 添加命令，使用 `#[tauri::command]` 并返回 `Result<T, String>`。
-- 测试优先：采用 TDD（使用 `tdd-guide`）；模块需要单元测试、集成测试，关键流程需要 E2E 测试，目标覆盖率为 80%。
-- 代码审查：完成实现后调用 `code-reviewer`，安全/敏感变更同时调用 `security-reviewer`。
-- 构建与运行：前端开发先运行 `npm run dev`（或 `pnpm dev`），如需启动 Tauri 调试请运行 `npm run tauri dev`（或等价命令）。
-- 构建失败：遇到构建/编译失败，请调用相应的构建解析 agent（如 `rust-build-resolver`等）。
-- 前端编写代码时如果需要打印信息请使用 `shared/components/ui/Toast.tsx` 组件
-- 文档要求：任何新功能必须先在 `doc/进行中/` 创建文档并在 `doc/0-index.md` 注册条目。
-- 验证与发布：修改完成后优先运行受影响模块的测试并手动验证关键交互（路由、项目创建、训练命令等）。
-
----
-
-## 快速参考（文件与命名）
-
-- `core/`：只读，核心基础设施，禁止日常修改。
-- `modules/`：模块实现，包含 `manifest.ts`、`pages/`、`components/` 等。
-- `shared/`：跨模块共享工具与组件。
-- 前端组件：`PascalCase.tsx`；工具函数：`camelCase.ts`。
-- 后端模块入口：`mod.rs`；命令文件采用 `snake_case`。
-
----
-
-## 变更流程要点
-
-- 进行重大结构变更前，先在 `doc/` 提交变更提案并获得团队确认。
-- 所有敏感改动必须走安全审查和回滚计划。
-
----
-
-如需查看完整架构细节，请打开仓库根的 `README.md`。
-
-- 阅读 `doc/进行中/` 下相关文档
-- 确认当前进度和待办事项
-
-2. **开发过程中**
-   - 每完成一个功能点，更新文档进度
-   - 使用 `[x]` 标记已完成项
-
-3. **功能完成时**
-   - 更新文档状态为"已完成"
-   - 移动文档到 `已完成/正在维护`
-   - **必须由用户检查确认后才能视为完成**
-   - 未经过用户检查的功能不得标记为完成
-
----
-
-## 示例对话
-
+## Key Directories
 ```
-用户: 我们来实现模块化架构吧
-
-助手: 好的，我先查看一下当前进行中的文档。
-      发现相关文档: 01-模块化架构设计-20260405.md
-      当前进度: 30%
-      待完成:
-      - [ ] 创建模块类型定义
-      - [x] 设计架构方案
-
-      开始实现模块类型定义...
+src/                          # React frontend
+src/modules/yolo/pages/        # Page components (TrainingPage, VideoPage, etc.)
+src/shared/components/ui/      # Shared UI (Toast, Modal, etc.)
+src/core/stores/              # Zustand stores
+src-tauri/src/                # Rust backend
+src-tauri/src/modules/yolo/   # YOLO domain (commands, services)
+src-tauri/src/modules/yolo/services/trainer.rs  # Burn training
+src-tauri/src/modules/yolo/services/inference_core.rs  # Rust inference
 ```
 
----
+## Critical Conventions
+- **No Python env checks** — pure Rust with CUDA detection only
+- **Proxy config**: `~/.config/rust-tools/proxy.json` (no hardcoded proxy URLs)
+- **Model download**: GitHub release URLs + configurable proxy
+- **num_classes**: always read from project's `data.yaml` (nc field), never hardcode
+- **CSS Modules required** for all new page components (no inline `style={{}}`)
+- **Toast over alert()** — use shared Toast component, never browser alert
 
-## 文档模板
-
-### 进行中文档模板
-
-```markdown
-# {功能名称}
-
-## 基本信息
-
-- 开始日期: {YYYY-MM-DD}
-- 预计完成: {YYYY-MM-DD}
-- 状态: 进行中
-- 进度: {X%}
-
-## 功能描述
-
-{简要说明}
-
-## 任务分解
-
-### Phase 1: {阶段名}
-
-- [ ] 子任务1
-- [ ] 子任务2
-
-### Phase 2: {阶段名}
-
-- [ ] 子任务3
-
-## 当前进度
-
-{具体进度说明}
-
-## 备注
-
-{待解决的问题等}
+## Build Commands
+```bash
+npm run dev          # Frontend dev
+cargo build --manifest-path src-tauri/Cargo.toml  # Rust build
+cargo check --manifest-path src-tauri/Cargo.toml  # Rust type check
+npm run build       # Frontend production build
 ```
 
-### 已完成文档模板
+## Development Workflow
+When asked to implement a feature or fix:
+1. Read relevant files first
+2. Check existing patterns in similar code
+3. Follow the adversarial-dev-workflow skill for significant changes
+4. Always verify with cargo check / npm run build before committing
 
-```markdown
-# {功能名称}
-
-## 基本信息
-
-- 完成日期: {YYYY-MM-DD}
-- 状态: 正在维护 | 已归档
-- 版本: {v1.0.0}
-
-## 功能描述
-
-{已完成的功能说明}
-
-## 核心实现
-
-{技术要点简述}
-
-## 相关文件
-
-- `src/xxx.ts`
-- `src/yyy.tsx`
-
-## 更新日志
-
-| 日期       | 版本   | 更新内容 |
-| ---------- | ------ | -------- |
-| YYYY-MM-DD | v1.0.0 | 初始完成 |
-```
-
----
-
-## 规则一致性
-
-- 所有开发对话使用中文
-- 每次开发前先阅读进行中文档
-- 每完成一个功能点立即更新文档
-- 功能完成后及时移动文档位置
-- 保持索引文件 (0-index.md) 最新状态
+## Style Rules
+- TypeScript: strict mode, explicit types on all function signatures
+- Rust: clippy-compliant, no unsafe unless necessary
+- CSS: CSS Modules only, modern dark theme colors (bg: #0f0f1a, accent: #00d4ff)
+- Components: functional React with hooks, no class components

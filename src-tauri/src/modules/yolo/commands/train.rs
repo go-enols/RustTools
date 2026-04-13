@@ -1,23 +1,8 @@
 use crate::modules::yolo::models::training::{TrainingMetrics, TrainingRequest};
-use crate::modules::yolo::services::{TrainerService, TrainingEvent};
+use crate::modules::yolo::services::TrainerService;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainedModelResponse {
-    pub id: String,
-    pub project_name: String,
-    pub project_path: String,
-    pub yolo_version: String,
-    pub model_size: String,
-    pub best_epoch: u32,
-    pub total_epochs: u32,
-    pub map50: f32,
-    pub map50_95: f32,
-    pub model_path: String,
-    pub created_at: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingProgressEvent {
@@ -26,26 +11,6 @@ pub struct TrainingProgressEvent {
     pub total_epochs: u32,
     pub progress_percent: f32,
     pub metrics: TrainingMetrics,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingBatchProgressEvent {
-    pub training_id: String,
-    pub epoch: u32,
-    pub total_epochs: u32,
-    pub batch: u32,
-    pub total_batches: u32,
-    pub box_loss: f32,
-    pub cls_loss: f32,
-    pub dfl_loss: f32,
-    pub learning_rate: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainingStartedEvent {
-    pub training_id: String,
-    pub cuda_available: bool,
-    pub cuda_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,8 +23,6 @@ pub struct TrainingCompleteEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrainingConfig {
-    #[serde(default)]
-    pub name: Option<String>,
     pub base_model: String,
     pub epochs: u32,
     pub batch_size: u32,
@@ -127,10 +90,7 @@ pub async fn training_start(
     project_path: String,
     config: TrainingConfig,
 ) -> Result<CommandResponse<String>, String> {
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-    let name = config.name.unwrap_or_else(|| "yolo_train".to_string());
     let request = TrainingRequest {
-        name,
         base_model: config.base_model,
         epochs: config.epochs,
         batch_size: config.batch_size,
@@ -166,98 +126,91 @@ pub async fn training_start(
         cache: config.cache,
     };
 
-    match state.start_training(project_path, request, event_tx).await {
+    match state.start_training(project_path, request).await {
         Ok(training_id) => {
+            // Spawn progress event emitter
             let app_clone = app.clone();
+            let training_id_clone = training_id.clone();
+            let state_inner = Arc::clone(&state);
 
             tokio::spawn(async move {
-                while let Some(event) = event_rx.recv().await {
-                    match event {
-                        TrainingEvent::Started { training_id, total_epochs, cuda_available } => {
-                            eprintln!(
-                                "[Trainer] Training started: id={}, total_epochs={}",
-                                training_id, total_epochs
-                            );
-                            let event = TrainingStartedEvent {
-                                training_id,
-                                cuda_available,
-                                cuda_version: None, // Burn不提供CUDA版本信息
-                            };
-                            let _ = app_clone.emit("training-started", event);
-                        }
-                        TrainingEvent::BatchProgress(state) => {
-                            let event = TrainingBatchProgressEvent {
-                                training_id: "".to_string(), // TrainingState没有training_id
-                                epoch: state.epoch,
-                                total_epochs: state.total_epochs,
-                                batch: state.batch,
-                                total_batches: state.total_batches,
-                                box_loss: state.box_loss,
-                                cls_loss: state.cls_loss,
-                                dfl_loss: state.dfl_loss,
-                                learning_rate: state.learning_rate,
-                            };
-                            let _ = app_clone.emit("training-batch-progress", event);
-                        }
-                        TrainingEvent::EpochComplete {
-                            epoch,
-                            box_loss,
-                            cls_loss,
-                            total_loss,
-                            map50,
-                        } => {
+                let mut last_epoch = 0u32;
+
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                    let is_running = state_inner.is_training(&training_id_clone).await;
+                    let error = state_inner.get_error(&training_id_clone).await;
+                    let status = state_inner.get_status(&training_id_clone).await;
+
+                    if status.is_none() {
+                        eprintln!("[Trainer] Status is None for training_id={}, is_running={}", training_id_clone, is_running);
+                    }
+
+                    // Only emit progress if epoch has changed (new data from Python)
+                    if let Some(s) = &status {
+                        if s.epoch > last_epoch {
+                            eprintln!("[Trainer] Emitting progress: epoch={}, total={}, progress={}%, metrics.box_loss={}",
+                                s.epoch, s.total_epochs, s.progress_percent, s.metrics.train_box_loss);
                             let event = TrainingProgressEvent {
-                                training_id: "".to_string(),
-                                epoch,
-                                total_epochs: 0,
-                                progress_percent: 0.0,
-                                metrics: TrainingMetrics {
-                                    train_box_loss: box_loss,
-                                    train_cls_loss: cls_loss,
-                                    train_dfl_loss: total_loss,
-                                    val_box_loss: 0.0,
-                                    val_cls_loss: 0.0,
-                                    val_dfl_loss: 0.0,
-                                    precision: 0.0,
-                                    recall: 0.0,
-                                    map50: map50.unwrap_or(0.0),
-                                    map50_95: 0.0,
-                                    learning_rate: 0.0,
-                                },
+                                training_id: training_id_clone.clone(),
+                                epoch: s.epoch,
+                                total_epochs: s.total_epochs,
+                                progress_percent: s.progress_percent,
+                                metrics: s.metrics.clone(),
                             };
                             let _ = app_clone.emit("training-progress", event);
-                        }
-                        TrainingEvent::Complete { model_path } => {
-                            let event = TrainingCompleteEvent {
-                                training_id: "".to_string(),
-                                success: true,
-                                model_path: Some(model_path),
-                                error: None,
-                            };
-                            let _ = app_clone.emit("training-complete", event);
-                            break;
-                        }
-                        TrainingEvent::Error { error } => {
-                            let event = TrainingCompleteEvent {
-                                training_id: "".to_string(),
-                                success: false,
-                                model_path: None,
-                                error: Some(error),
-                            };
-                            let _ = app_clone.emit("training-complete", event);
-                            break;
-                        }
-                        TrainingEvent::Stopped => {
-                            let event = TrainingCompleteEvent {
-                                training_id: "".to_string(),
-                                success: false,
-                                model_path: None,
-                                error: Some("训练已停止".to_string()),
-                            };
-                            let _ = app_clone.emit("training-complete", event);
-                            break;
+                            eprintln!("[Trainer] Progress event emitted successfully");
+                            last_epoch = s.epoch;  // Update after emitting
+
+                            // Check if training is complete (epoch reached total)
+                            if s.epoch >= s.total_epochs && s.total_epochs > 0 && s.epoch > 0 {
+                                eprintln!("[Trainer] Training complete: epoch {} >= total {}", s.epoch, s.total_epochs);
+                                let model_path = state_inner.get_model_path(&training_id_clone).await;
+                                let event = TrainingCompleteEvent {
+                                    training_id: training_id_clone.clone(),
+                                    success: s.error.is_none(),
+                                    model_path: if s.error.is_none() { model_path } else { None },
+                                    error: s.error.clone(),
+                                };
+                                let _ = app_clone.emit("training-complete", event);
+                                break;
+                            }
                         }
                     }
+
+                    // Check if process is still running
+                    if !is_running {
+                        eprintln!("[Trainer] Process not running (is_running=false), checking completion status");
+                        // Process ended - check if we have valid metrics
+                        if let Some(s) = &status {
+                            eprintln!("[Trainer] Status check: epoch={}, total_epochs={}, error={:?}", s.epoch, s.total_epochs, s.error);
+                            if s.epoch > 0 && s.total_epochs > 0 {
+                                // We have some training data, consider it complete
+                                let model_path = state_inner.get_model_path(&training_id_clone).await;
+                                let event = TrainingCompleteEvent {
+                                    training_id: training_id_clone.clone(),
+                                    success: s.error.is_none(),
+                                    model_path: if s.error.is_none() { model_path } else { None },
+                                    error: s.error.clone(),
+                                };
+                                eprintln!("[Trainer] Sending training-complete event (with data): success={}", s.error.is_none());
+                                let _ = app_clone.emit("training-complete", event);
+                                break;
+                            }
+                        }
+                        // No training data, emit error
+                        eprintln!("[Trainer] Sending training-complete event (error case): error={:?}", error);
+                        let event = TrainingCompleteEvent {
+                            training_id: training_id_clone.clone(),
+                            success: false,
+                            model_path: None,
+                            error: Some(error.unwrap_or_else(|| "Training process ended unexpectedly".to_string())),
+                        };
+                        let _ = app_clone.emit("training-complete", event);
+                        break;
+                    }
+
                 }
             });
 
@@ -355,46 +308,5 @@ pub async fn yolo_download_model(
             path: None,
             error: Some(e),
         })),
-    }
-}
-
-/// Get list of trained models
-#[tauri::command]
-pub async fn model_list(
-    state: State<'_, Arc<TrainerService>>,
-) -> Result<CommandResponse<Vec<TrainedModelResponse>>, String> {
-    match state.get_trained_models().await {
-        Ok(models) => {
-            let response: Vec<TrainedModelResponse> = models
-                .into_iter()
-                .map(|m| TrainedModelResponse {
-                    id: m.id,
-                    project_name: m.project_name,
-                    project_path: m.project_path,
-                    yolo_version: m.yolo_version,
-                    model_size: m.model_size,
-                    best_epoch: m.best_epoch,
-                    total_epochs: m.total_epochs,
-                    map50: m.map50,
-                    map50_95: m.map50_95,
-                    model_path: m.model_path,
-                    created_at: m.created_at,
-                })
-                .collect();
-            Ok(CommandResponse::ok(response))
-        }
-        Err(e) => Ok(CommandResponse::err(e)),
-    }
-}
-
-/// Delete a trained model
-#[tauri::command]
-pub async fn model_delete(
-    state: State<'_, Arc<TrainerService>>,
-    model_id: String,
-) -> Result<CommandResponse<()>, String> {
-    match state.delete_trained_model(&model_id).await {
-        Ok(_) => Ok(CommandResponse::ok(())),
-        Err(e) => Ok(CommandResponse::err(e)),
     }
 }

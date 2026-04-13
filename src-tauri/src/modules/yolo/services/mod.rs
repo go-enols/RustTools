@@ -25,7 +25,8 @@ pub mod env;          // Rust环境检测模块
 // pub mod scrap_burn_yolo;  // 有线程安全问题
 pub mod scrap_burn_final;  // 修复线程安全问题的最终版本
 
-pub use trainer::{TrainerService, TrainingEvent};
+pub use trainer::TrainerService;
+pub use burn_trainer::TrainingEvent;
 pub use video::VideoService;
 pub use video_inference::VideoInferenceService;
 pub use desktop_capture::{DesktopCaptureService, MonitorInfo, AnnotationBox, DesktopCaptureFrame};

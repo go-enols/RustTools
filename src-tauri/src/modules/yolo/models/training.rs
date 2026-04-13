@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingRequest {
-    pub name: String,
     pub base_model: String,
     pub epochs: u32,
     pub batch_size: u32,

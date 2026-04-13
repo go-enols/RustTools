@@ -1,722 +1,537 @@
-//! YOLO训练服务 - 纯Rust实现，无Python依赖
-//! 
-//! 使用 Burn 框架进行深度学习训练
-//! 支持 CUDA (burn-cudarc) 和 CPU (burn-ndarray) 后端
-
-use crate::modules::yolo::models::training::{TrainingRequest, TrainingStatus, TrainingMetrics};
+use crate::modules::yolo::models::training::{TrainingMetrics, TrainingRequest, TrainingStatus};
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, RwLock};
-
-/// Proxy configuration for downloading models
-#[derive(Debug, Deserialize, Serialize)]
-struct ProxyConfig {
-    proxy_url: String,
-}
-
-impl ProxyConfig {
-    /// Read proxy configuration from ~/.config/rust-tools/proxy.json
-    /// Creates default config file if it doesn't exist
-    fn load() -> Self {
-        let config_path = Self::config_path();
-        
-        // Create default config if doesn't exist
-        if !config_path.exists() {
-            if let Some(parent) = config_path.parent() {
-                let _ = fs::create_dir_all(parent);
-            }
-            let default_config = ProxyConfig {
-                proxy_url: "http://127.0.0.1:7890".to_string(),
-            };
-            if let Ok(json) = serde_json::to_string_pretty(&default_config) {
-                let _ = fs::write(&config_path, json);
-                eprintln!("[Trainer] Created default proxy config at {:?}", config_path);
-            }
-            return default_config;
-        }
-        
-        // Read existing config
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<ProxyConfig>(&content) {
-                return config;
-            }
-        }
-        
-        // Fallback to default
-        eprintln!("[Trainer] Failed to read proxy config, using default");
-        ProxyConfig {
-            proxy_url: "http://127.0.0.1:7890".to_string(),
-        }
-    }
-    
-    fn config_path() -> PathBuf {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".config")
-            .join("rust-tools")
-            .join("proxy.json")
-    }
-}
-
-/// Detect if CUDA is available by checking for nvidia-smi or CUDA environment
-fn is_cuda_available() -> bool {
-    // Check if nvidia-smi exists and works
-    if std::process::Command::new("nvidia-smi")
-        .arg("--query-gpu=name")
-        .arg("--format=csv,noheader")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        eprintln!("[Trainer] CUDA detected via nvidia-smi");
-        return true;
-    }
-    
-    // Check CUDA_VISIBLE_DEVICES environment variable
-    if std::env::var("CUDA_VISIBLE_DEVICES").is_ok() {
-        eprintln!("[Trainer] CUDA detected via CUDA_VISIBLE_DEVICES");
-        return true;
-    }
-    
-    // Check for CUDA libraries
-    #[cfg(unix)]
-    {
-        use std::path::Path;
-        let possible_paths = [
-            "/usr/local/cuda/lib64",
-            "/usr/lib/x86_64-linux-gnu",
-        ];
-        for path in possible_paths {
-            if Path::new(path).exists() && Path::new(path).join("libcuda.so").exists() {
-                eprintln!("[Trainer] CUDA detected via library path");
-                return true;
-            }
-        }
-    }
-    
-    eprintln!("[Trainer] CUDA not available, using CPU");
-    false
-}
-
-/// Helper struct to parse data.yaml for YOLO training config
-#[derive(Debug, Deserialize)]
-struct YoloDataYaml {
-    nc: Option<usize>,
-}
-
-impl YoloDataYaml {
-    fn num_classes_from_path(project_path: &str) -> Option<usize> {
-        let data_yaml_path = PathBuf::from(project_path).join("data.yaml");
-        if !data_yaml_path.exists() {
-            eprintln!("[Trainer] data.yaml not found at {:?}", data_yaml_path);
-            return None;
-        }
-        let content = fs::read_to_string(&data_yaml_path)
-            .map_err(|e| eprintln!("[Trainer] Failed to read data.yaml: {}", e))
-            .ok()?;
-        let yaml: YoloDataYaml = serde_yaml::from_str(&content)
-            .map_err(|e| eprintln!("[Trainer] Failed to parse data.yaml: {}", e))
-            .ok()?;
-        yaml.nc
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrainedModelInfo {
-    pub id: String,
-    pub project_name: String,
-    pub project_path: String,
-    pub yolo_version: String,
-    pub model_size: String,
-    pub best_epoch: u32,
-    pub total_epochs: u32,
-    pub map50: f32,
-    pub map50_95: f32,
-    pub model_path: String,
-    pub created_at: String,
-}
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, RwLock};
+use tokio_stream::StreamExt;
 
 pub struct TrainerService {
     processes: Arc<RwLock<HashMap<String, TrainingHandle>>>,
-    trained_models: Arc<RwLock<Vec<TrainedModelInfo>>>,
 }
 
 struct TrainingHandle {
     status: TrainingStatus,
-    stop_tx: Option<oneshot::Sender<()>>,
+    stop_tx: Option<mpsc::Sender<()>>,
+    child: Child,
+    stdin: Option<tokio::io::BufWriter<tokio::process::ChildStdin>>,
     model_path: Option<String>,
-    project_name: String,
-    project_path: String,
-    yolo_version: String,
-    total_epochs: u32,
-    is_paused: bool,
-    pause_tx: Option<oneshot::Sender<()>>,
-    pause_rx: Option<oneshot::Receiver<()>>,
 }
-
-// 重新导出burn_trainer中的TrainingEvent
-pub use crate::modules::yolo::services::burn_trainer::TrainingEvent;
 
 impl TrainerService {
     pub fn new() -> Self {
         Self {
             processes: Arc::new(RwLock::new(HashMap::new())),
-            trained_models: Arc::new(RwLock::new(Vec::new())),
         }
-    }
-    
-    fn get_models_dir() -> PathBuf {
-        let cache_dir = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .map(|h| PathBuf::from(h).join(".cache").join("rust-tools").join("models"))
-            .unwrap_or_else(|_| PathBuf::from(".cache/rust-tools/models"));
-        cache_dir
-    }
-    
-    pub async fn save_trained_model(&self, model_info: TrainedModelInfo) -> Result<(), String> {
-        let models_dir = Self::get_models_dir();
-        fs::create_dir_all(&models_dir)
-            .map_err(|e| format!("Failed to create models directory: {}", e))?;
-        
-        let models_file = models_dir.join("trained_models.json");
-        let mut models = self.trained_models.write().await;
-        models.push(model_info.clone());
-        
-        let json = serde_json::to_string_pretty(&*models)
-            .map_err(|e| format!("Failed to serialize models: {}", e))?;
-        fs::write(&models_file, json)
-            .map_err(|e| format!("Failed to save models: {}", e))?;
-        
-        eprintln!("[Trainer] Saved trained model: {} to {:?}", model_info.project_name, models_file);
-        Ok(())
-    }
-    
-    pub async fn get_trained_models(&self) -> Result<Vec<TrainedModelInfo>, String> {
-        let models_dir = Self::get_models_dir();
-        let models_file = models_dir.join("trained_models.json");
-        
-        if !models_file.exists() {
-            eprintln!("[Trainer] No trained models file found");
-            return Ok(Vec::new());
-        }
-        
-        let content = fs::read_to_string(&models_file)
-            .map_err(|e| format!("Failed to read models file: {}", e))?;
-        
-        let models: Vec<TrainedModelInfo> = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse models: {}", e))?;
-        
-        *self.trained_models.write().await = models.clone();
-        eprintln!("[Trainer] Loaded {} trained models", models.len());
-        Ok(models)
-    }
-    
-    pub async fn delete_trained_model(&self, model_id: &str) -> Result<(), String> {
-        let models_dir = Self::get_models_dir();
-        let models_file = models_dir.join("trained_models.json");
-        
-        let mut models = self.trained_models.write().await;
-        let initial_len = models.len();
-        models.retain(|m| m.id != model_id);
-        
-        if models.len() == initial_len {
-            return Err("Model not found".to_string());
-        }
-        
-        let json = serde_json::to_string_pretty(&*models)
-            .map_err(|e| format!("Failed to serialize models: {}", e))?;
-        fs::write(&models_file, json)
-            .map_err(|e| format!("Failed to save models: {}", e))?;
-        
-        eprintln!("[Trainer] Deleted trained model: {}", model_id);
-        Ok(())
     }
 
     fn generate_id() -> String {
-        let mut rng = rand::rng();
-        let bytes: [u8; 16] = rng.random();
+        let mut rng = rand::thread_rng();
+        let bytes: [u8; 16] = rng.gen();
         hex::encode(bytes)
     }
-    
-    /// 暂停训练
-    pub async fn pause_training(&self, training_id: &str) -> Result<(), String> {
-        eprintln!("[Trainer] Pausing training: {}", training_id);
-        
-        let mut processes = self.processes.write().await;
-        if let Some(handle) = processes.get_mut(training_id) {
-            if handle.is_paused {
-                return Err("Training already paused".to_string());
-            }
-            if let Some(pause_tx) = handle.pause_tx.take() {
-                let _ = pause_tx.send(());
-                handle.is_paused = true;
-                handle.status.paused = true;
-                handle.status.running = false;
-                eprintln!("[Trainer] Training paused: {}", training_id);
-                Ok(())
-            } else {
-                Err("Pause signal not available".to_string())
-            }
-        } else {
-            Err("Training not found".to_string())
-        }
+
+    /// Find and start the Python sidecar process
+    async fn start_sidecar(&self) -> Result<Child, String> {
+        let script_paths = [
+            "scripts/yolo_server.py",
+            "src-tauri/scripts/yolo_server.py",
+        ];
+
+        let script_path = script_paths
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .ok_or_else(|| "Python sidecar script not found".to_string())?;
+
+        let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+
+        let child = Command::new(python_cmd)
+            .arg(script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())  // Print Python stderr to console
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("Failed to start Python sidecar: {}", e))?;
+
+        Ok(child)
     }
-    
-    /// 恢复训练
-    pub async fn resume_training(&self, training_id: &str) -> Result<(), String> {
-        eprintln!("[Trainer] Resuming training: {}", training_id);
-        
+
+    pub async fn start_training(
+        &self,
+        project_path: String,
+        request: TrainingRequest,
+    ) -> Result<String, String> {
+        let training_id = Self::generate_id();
+        self.start_training_pipe(training_id, project_path, request)
+            .await
+    }
+
+    /// Start training via stdin/stdout pipe
+    /// Python actively reports progress via callbacks
+    async fn start_training_pipe(
+        &self,
+        training_id: String,
+        project_path: String,
+        request: TrainingRequest,
+    ) -> Result<String, String> {
+        eprintln!("[Trainer] Starting training via pipe...");
+
+        let mut child = self.start_sidecar().await?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Failed to take stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to take stdout".to_string())?;
+
+        // Build config
+        let config = serde_json::json!({
+            "project_path": project_path,
+            "base_model": request.base_model,
+            "epochs": request.epochs,
+            "batch_size": request.batch_size,
+            "image_size": request.image_size,
+            "device": request.device_id,
+            "workers": request.workers,
+            "optimizer": request.optimizer,
+        });
+
+        // Send start command - keep stdin alive by wrapping in BufWriter but not dropping
+        let start_cmd = serde_json::json!({
+            "type": "start",
+            "config": config,
+        });
+
+        let mut stdin_writer = tokio::io::BufWriter::new(stdin);
+        stdin_writer
+            .write_all(
+                (serde_json::to_string(&start_cmd).unwrap() + "\n").as_bytes(),
+            )
+            .await
+            .map_err(|e| format!("Failed to write start command: {}", e))?;
+        stdin_writer
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush stdin: {}", e))?;
+
+        // Keep stdin writer alive - don't drop it here! Python needs stdin to stay open.
+
+        let (stop_tx, stop_rx) = mpsc::channel::<()>(1);
+
+        let handle = TrainingHandle {
+            status: TrainingStatus {
+                running: true,
+                paused: false,
+                epoch: 0,
+                total_epochs: request.epochs,
+                progress_percent: 0.0,
+                metrics: TrainingMetrics::default(),
+                error: None,
+            },
+            stop_tx: Some(stop_tx),
+            child,
+            stdin: Some(stdin_writer),  // Keep stdin alive
+            model_path: None,
+        };
+
+        self.processes
+            .write()
+            .await
+            .insert(training_id.clone(), handle);
+
+        // Spawn event reader - Python actively sends events
+        let process_id = training_id.clone();
+        let processes = Arc::clone(&self.processes);
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stop_rx = stop_rx;
+
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = stop_rx.recv() => {
+                        // Send stop command to Python
+                        eprintln!("[Trainer] Sending stop command to Python...");
+                        // Note: Can't easily write to stdin here, so just kill
+                        if let Some(h) = processes.write().await.get_mut(&process_id) {
+                            let _ = h.child.kill().await;
+                            h.status.running = false;
+                        }
+                        break;
+                    }
+                    line = stdout_reader.next_line() => {
+                        match line {
+                            Ok(Some(line)) => {
+                                // Parse JSON event from Python
+                                if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&line) {
+                                    let event_type = resp
+                                        .get("type")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+
+                                    eprintln!("[Trainer] Received event: {} - {}", event_type, line);
+
+                                    match event_type {
+                                        "progress" => {
+                                            eprintln!("[Trainer] Processing progress event from Python");
+                                            if let Some(data) = resp.get("data") {
+                                                let epoch = data
+                                                    .get("epoch")
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(0) as u32;
+                                                let total = data
+                                                    .get("total_epochs")
+                                                    .and_then(|v| v.as_u64())
+                                                    .unwrap_or(0) as u32;
+
+                                                if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                    h.status.epoch = epoch;
+                                                    h.status.total_epochs = total;
+                                                    if total > 0 {
+                                                        h.status.progress_percent =
+                                                            (epoch as f32 / total as f32) * 100.0;
+                                                    }
+
+                                                    // Extract metrics
+                                                    let mut metrics = TrainingMetrics::default();
+                                                    metrics.train_box_loss =
+                                                        data.get("box_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.train_cls_loss =
+                                                        data.get("cls_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.train_dfl_loss =
+                                                        data.get("dfl_loss").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.precision =
+                                                        data.get("precision").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.recall =
+                                                        data.get("recall").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.map50 =
+                                                        data.get("mAP50").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                                                    metrics.map50_95 =
+                                                        data.get("mAP50-95").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+                                                    eprintln!("[Trainer] Progress updated: epoch={}, metrics box_loss={}", epoch, metrics.train_box_loss);
+                                                    h.status.metrics = metrics;
+                                                }
+                                            }
+                                        }
+                                        "started" => {
+                                            eprintln!("[Trainer] Training started event received");
+                                        }
+                                        "complete" => {
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                                if let Some(data) = resp.get("data") {
+                                                    if let Some(_final_metrics) = data.get("final_metrics") {
+                                                        h.status.progress_percent = 100.0;
+                                                    }
+                                                }
+                                            }
+                                            eprintln!("[Trainer] Training complete event received");
+                                            break;
+                                        }
+                                        "error" => {
+                                            let error_msg = resp
+                                                .get("error")
+                                                .and_then(|v| v.as_str())
+                                                .map(String::from)
+                                                .unwrap_or_else(|| "Unknown error".to_string());
+                                            eprintln!("[Trainer] Received error event: {}", error_msg);
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                                h.status.error = Some(error_msg.clone());
+                                            }
+                                            eprintln!("[Trainer] Training error event processed: {}", error_msg);
+                                            break;
+                                        }
+                                        "stopped" => {
+                                            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                h.status.running = false;
+                                            }
+                                            eprintln!("[Trainer] Training stopped event received");
+                                            break;
+                                        }
+                                        "log" => {
+                                            if let Some(data) = resp.get("data") {
+                                                if let Some(msg) = data.get("message").and_then(|v| v.as_str()) {
+                                                    eprintln!("[YOLO] {}", msg);
+                                                }
+                                            }
+                                        }
+                                        "model_saved" => {
+                                            if let Some(data) = resp.get("data") {
+                                                if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                                                    eprintln!("[Trainer] Model saved: {}", path);
+                                                    if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                                        h.model_path = Some(path.to_string());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {
+                                            eprintln!("[Trainer] Unknown event type: {}", event_type);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(None) | Err(_) => {
+                                // Stream ended
+                                eprintln!("[Trainer] Output stream ended");
+                                if let Some(h) = processes.write().await.get_mut(&process_id) {
+                                    h.status.running = false;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Clean up
+            if let Some(h) = processes.write().await.get_mut(&process_id) {
+                h.status.running = false;
+                let _ = h.child.wait().await;
+            }
+        });
+
+        Ok(training_id)
+    }
+
+    pub async fn stop_training(&self, training_id: &str) -> Result<(), String> {
         let mut processes = self.processes.write().await;
         if let Some(handle) = processes.get_mut(training_id) {
-            if !handle.is_paused {
-                return Err("Training not paused".to_string());
+            if let Some(tx) = handle.stop_tx.take() {
+                let _ = tx.send(()).await;
             }
-            handle.is_paused = false;
+            handle.status.running = false;
             handle.status.paused = false;
-            handle.status.running = true;
-            eprintln!("[Trainer] Training resumed: {}", training_id);
+        }
+        Ok(())
+    }
+
+    pub async fn pause_training(&self, training_id: &str) -> Result<(), String> {
+        let mut processes = self.processes.write().await;
+        if let Some(handle) = processes.get_mut(training_id) {
+            handle.status.paused = true;
             Ok(())
         } else {
             Err("Training not found".to_string())
         }
     }
-    
-    /// 检查模型是否存在
-    pub async fn check_model(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
-        let models = self.get_trained_models().await?;
-        
-        for model in models {
-            if model.project_name == model_name {
-                let path = Some(model.model_path.clone());
-                return Ok((true, path));
-            }
-        }
-        
-        // 检查模型文件是否存在（前端传 yolo11s.pt，去掉后缀）
-        let models_dir = Self::get_models_dir();
-        let model_key = model_name.trim_end_matches(".pt");
-        let model_path = models_dir.join(format!("{}.pt", model_key));
-        
-        if model_path.exists() {
-            return Ok((true, Some(model_path.to_string_lossy().to_string())));
-        }
-        
-        Ok((false, None))
-    }
-    
-    /// 获取所有可用的预训练模型列表
-    ///
-    /// 使用 GitHub Release 直链 + mihomo 代理下载模型。
-    /// 模型文件后缀统一为 .pt（与前端选型一致）。
-    pub fn get_available_models() -> Vec<(&'static str, &'static str, String)> {
-        let base = "https://github.com/ultralytics/assets/releases/download/v8.4.0";
-        vec![
-            // YOLO11 检测模型
-            ("yolo11n",  "检测", format!("{}/yolo11n.pt",  base)),
-            ("yolo11s",  "检测", format!("{}/yolo11s.pt",  base)),
-            ("yolo11m",  "检测", format!("{}/yolo11m.pt",  base)),
-            ("yolo11l",  "检测", format!("{}/yolo11l.pt",  base)),
-            ("yolo11x",  "检测", format!("{}/yolo11x.pt",  base)),
-            // YOLO11 分割
-            ("yolo11n-seg", "分割",     format!("{}/yolo11n-seg.pt", base)),
-            ("yolo11s-seg", "分割",     format!("{}/yolo11s-seg.pt", base)),
-            ("yolo11m-seg", "分割",     format!("{}/yolo11m-seg.pt", base)),
-            ("yolo11l-seg", "分割",     format!("{}/yolo11l-seg.pt", base)),
-            ("yolo11x-seg", "分割",     format!("{}/yolo11x-seg.pt", base)),
-            // YOLO11 姿态
-            ("yolo11n-pose", "姿态",   format!("{}/yolo11n-pose.pt", base)),
-            ("yolo11s-pose", "姿态",   format!("{}/yolo11s-pose.pt", base)),
-            ("yolo11m-pose", "姿态",   format!("{}/yolo11m-pose.pt", base)),
-            ("yolo11l-pose", "姿态",   format!("{}/yolo11l-pose.pt", base)),
-            ("yolo11x-pose", "姿态",   format!("{}/yolo11x-pose.pt", base)),
-            // YOLO11 旋转边界框
-            ("yolo11n-obb", "旋转框",  format!("{}/yolo11n-obb.pt", base)),
-            ("yolo11s-obb", "旋转框",  format!("{}/yolo11s-obb.pt", base)),
-            ("yolo11m-obb", "旋转框",  format!("{}/yolo11m-obb.pt", base)),
-            ("yolo11l-obb", "旋转框",  format!("{}/yolo11l-obb.pt", base)),
-            ("yolo11x-obb", "旋转框",  format!("{}/yolo11x-obb.pt", base)),
-            // YOLO11 分类
-            ("yolo11n-cls", "分类",    format!("{}/yolo11n-cls.pt", base)),
-            ("yolo11s-cls", "分类",    format!("{}/yolo11s-cls.pt", base)),
-            ("yolo11m-cls", "分类",    format!("{}/yolo11m-cls.pt", base)),
-            ("yolo11l-cls", "分类",    format!("{}/yolo11l-cls.pt", base)),
-            ("yolo11x-cls", "分类",    format!("{}/yolo11x-cls.pt", base)),
-            // YOLOv8 检测（部分）
-            ("yolov8n",  "检测", format!("{}/yolov8n.pt",  base)),
-            ("yolov8s",  "检测", format!("{}/yolov8s.pt",  base)),
-            ("yolov8m",  "检测", format!("{}/yolov8m.pt",  base)),
-            ("yolov8l",  "检测", format!("{}/yolov8l.pt",  base)),
-            ("yolov8x",  "检测", format!("{}/yolov8x.pt",  base)),
-        ]
-    }
-    
-    /// 获取所有可用的模型名称（带描述）
-    pub fn list_available_models() -> Vec<(String, String)> {
-        Self::get_available_models()
-            .iter()
-            .map(|(name, desc, _)| (name.to_string(), desc.to_string()))
-            .collect()
-    }
-    
-    /// 下载预训练模型
-    pub async fn download_model<F>(&self, model_name: &str, progress_callback: F) -> Result<String, String> 
-    where
-        F: Fn(String) + Send + 'static,
-    {
-        use futures_util::StreamExt;
-        
-        progress_callback(format!("开始下载模型: {}", model_name));
-        
-        // 获取模型URL（前端传 yolo11s.pt，后端key为 yolo11s）
-        let model_urls = Self::get_available_models();
-        let model_key = model_name.trim_end_matches(".pt").to_lowercase();
-        let url = model_urls.iter()
-            .find(|(name, _, _)| *name == model_key)
-            .map(|(_, _, url)| url.clone())
-            .ok_or_else(|| {
-                let available: Vec<String> = model_urls.iter()
-                    .map(|(name, desc, _)| format!("{} ({})", name, desc))
-                    .collect();
-                format!("未知的模型: {}\n\n可用的模型:\n{}", model_key, available.join("\n"))
-            })?;
-        
-        progress_callback(format!("下载地址: {}", url));
-        
-        // 创建下载目录
-        let models_dir = Self::get_models_dir();
-        fs::create_dir_all(&models_dir)
-            .map_err(|e| format!("创建模型目录失败: {}", e))?;
-        
-        let model_path = models_dir.join(format!("{}.pt", model_name.trim_end_matches(".pt")));
-        
-        // 如果模型已存在，检查文件完整性（不为空）
-        if model_path.exists() {
-            let metadata = fs::metadata(&model_path)
-                .map_err(|e| format!("读取模型文件失败: {}", e))?;
-            
-            if metadata.len() > 1024 {  // 文件大于1KB，认为是完整的
-                progress_callback(format!("模型已存在，跳过下载: {:?}", model_path));
-                return Ok(model_path.to_string_lossy().to_string());
-            } else {
-                progress_callback(format!("模型文件不完整，将重新下载: {} bytes", metadata.len()));
-                // 删除不完整的文件，重新下载
-                fs::remove_file(&model_path)
-                    .map_err(|e| format!("删除不完整文件失败: {}", e))?;
-            }
-        }
-        
-        progress_callback(format!("正在通过代理下载..."));
 
-        // reqwest 不读 HTTP_PROXY 环境变量，必须显式配置代理
-        let proxy_config = ProxyConfig::load();
-        let proxy = reqwest::Proxy::http(&proxy_config.proxy_url)
-            .map_err(|e| format!("代理配置失败: {}", e))?;
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .proxy(proxy)
-            .build()
-            .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
-        
-        let response = client.get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("下载失败: {}\n请检查网络连接或代理设置", e))?;
-        
-        // 检查HTTP状态码
-        if !response.status().is_success() {
-            return Err(format!(
-                "下载失败，HTTP状态码: {}\nURL: {}\n如果持续失败，请手动下载模型后放到: {:?}",
-                response.status(),
-                url,
-                model_path
-            ));
-        }
-        
-        let total_size = response.content_length()
-            .ok_or("无法获取文件大小，请检查网络连接")?;
-        
-        progress_callback(format!("文件大小: {:.2} MB", total_size as f64 / 1024.0 / 1024.0));
-        
-        use tokio::io::AsyncWriteExt;
-        let mut file = tokio::fs::File::create(&model_path)
-            .await
-            .map_err(|e| format!("创建文件失败: {}", e))?;
-        
-        let mut stream = response.bytes_stream();
-        let mut downloaded: u64 = 0;
-        let mut last_progress = 0u32;
-        
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| format!("读取数据失败: {}", e))?;
-            file.write_all(&chunk).await
-                .map_err(|e| format!("写入文件失败: {}", e))?;
-            
-            downloaded += chunk.len() as u64;
-            
-            // 每10%报告一次进度
-            let progress = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
-            if progress >= last_progress + 10 {
-                last_progress = progress;
-                progress_callback(format!("下载进度: {}% ({} / {} MB)", 
-                    progress, 
-                    downloaded / (1024 * 1024),
-                    total_size / (1024 * 1024)
-                ));
-            }
-        }
-        
-        file.flush().await
-            .map_err(|e| format!("刷新文件失败: {}", e))?;
-        
-        // 验证下载的文件
-        let final_metadata = fs::metadata(&model_path)
-            .map_err(|e| format!("验证文件失败: {}", e))?;
-        
-        if final_metadata.len() < 1024 {
-            return Err(format!("下载的文件不完整: {} bytes", final_metadata.len()));
-        }
-        
-        progress_callback(format!("下载完成: {:?} ({:.2} MB)", model_path, final_metadata.len() as f64 / 1024.0 / 1024.0));
-        
-        Ok(model_path.to_string_lossy().to_string())
-    }
-    
-    /// 检查模型是否已下载
-    pub async fn is_model_downloaded(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
-        let model_urls = Self::get_available_models();
-        let model_key = model_name.trim_end_matches(".pt").to_lowercase();
-
-        // 检查是否是已知的模型
-        let is_known = model_urls.iter().any(|(name, _, _)| *name == model_key);
-        if !is_known {
-            return Err(format!("未知的模型: {}", model_key));
-        }
-
-        let models_dir = Self::get_models_dir();
-        let model_path = models_dir.join(format!("{}.pt", model_key));
-        
-        if model_path.exists() {
-            let metadata = fs::metadata(&model_path)
-                .map_err(|e| format!("读取文件失败: {}", e))?;
-            
-            if metadata.len() > 1024 {
-                return Ok((true, Some(model_path.to_string_lossy().to_string())));
-            }
-        }
-        
-        Ok((false, None))
-    }
-    
-    /// 启动纯Rust训练 - 使用Burn框架
-    pub async fn start_training(
-        &self,
-        project_path: String,
-        request: TrainingRequest,
-        event_tx: mpsc::UnboundedSender<TrainingEvent>,
-    ) -> Result<String, String> {
-        let training_id = Self::generate_id();
-        
-        eprintln!("[Trainer] Starting Burn-based training (Pure Rust)");
-        eprintln!("[Trainer] Training ID: {}", training_id);
-        eprintln!("[Trainer] Project path: {}", project_path);
-        
-        // 创建停止信号通道
-        let (stop_tx, stop_rx) = oneshot::channel::<()>();
-        // 创建暂停信号通道
-        let (pause_tx, pause_rx) = oneshot::channel::<()>();
-        
-        // 初始化训练状态
-        let initial_status = TrainingStatus {
-            running: true,
-            paused: false,
-            epoch: 0,
-            total_epochs: request.epochs,
-            progress_percent: 0.0,
-            metrics: TrainingMetrics::default(),
-            error: None,
-        };
-        
-        // 保存训练句柄
-        {
-            let mut processes = self.processes.write().await;
-            processes.insert(
-                training_id.clone(),
-                TrainingHandle {
-                    status: initial_status,
-                    stop_tx: Some(stop_tx),
-                    model_path: None,
-                    project_name: request.name.clone(),
-                    project_path: project_path.clone(),
-                    yolo_version: request.base_model.clone(),
-                    total_epochs: request.epochs,
-                    is_paused: false,
-                    pause_tx: Some(pause_tx),
-                    pause_rx: Some(pause_rx),
-                },
-            );
-        }
-        
-        // 发送启动事件
-        event_tx.send(TrainingEvent::Started {
-            training_id: training_id.clone(),
-            total_epochs: request.epochs,
-            cuda_available: is_cuda_available(),
-        }).map_err(|e| format!("Failed to send started event: {}", e))?;
-        
-        // 在后台spawn训练任务
-        let processes_clone = self.processes.clone();
-        let trained_models_clone = self.trained_models.clone();
-        let training_id_clone = training_id.clone();
-        let project_name = request.name.clone();
-        let project_path_clone = project_path.clone();
-        let epochs_clone = request.epochs;
-        let base_model_clone = request.base_model.clone();
-        
-        tokio::spawn(async move {
-            // 使用Burn训练器进行训练
-            let result = Self::run_burn_training(
-                training_id_clone.clone(),
-                project_path_clone.clone(),
-                request,
-                stop_rx,
-                event_tx.clone(),
-            ).await;
-            
-            // 更新训练状态
-            let mut processes = processes_clone.write().await;
-            if let Some(handle) = processes.get_mut(&training_id_clone) {
-                match result {
-                    Ok(model_path) => {
-                        handle.status.running = false;
-                        handle.model_path = Some(model_path.clone());
-
-                        // 保存训练完成的模型信息
-                        let model_info = TrainedModelInfo {
-                            id: training_id_clone.clone(),
-                            project_name: project_name.clone(),
-                            project_path: project_path_clone.clone(),
-                            yolo_version: base_model_clone.clone(),
-                            model_size: "N/A".to_string(),
-                            best_epoch: epochs_clone,
-                            total_epochs: epochs_clone,
-                            map50: 0.0,
-                            map50_95: 0.0,
-                            model_path: model_path.clone(),
-                            created_at: chrono::Utc::now().to_rfc3339(),
-                        };
-
-                        // 直接写入文件，避免在 async move 中使用 self
-                        let models_dir = Self::get_models_dir();
-                        if let Err(e) = fs::create_dir_all(&models_dir) {
-                            eprintln!("[Trainer] Failed to create models directory: {}", e);
-                        } else {
-                            let models_file = models_dir.join("trained_models.json");
-                            let mut models = trained_models_clone.write().await;
-                            models.push(model_info.clone());
-                            if let Ok(json) = serde_json::to_string_pretty(&*models) {
-                                if let Err(e) = fs::write(&models_file, json) {
-                                    eprintln!("[Trainer] Failed to save models: {}", e);
-                                } else {
-                                    eprintln!("[Trainer] Saved trained model: {} to {:?}", model_info.project_name, models_file);
-                                }
-                            }
-                        }
-                        // burn_trainer 会在 train() 完成时自动发送 TrainingEvent::Complete
-                        // 命令层会收到并转发 "training-complete" 给前端
-                    }
-                    Err(e) => {
-                        handle.status.running = false;
-                        handle.status.error = Some(e.clone());
-                        let _ = event_tx.send(TrainingEvent::Error {
-                            error: e,
-                        });
-                    }
-                }
-            }
-        });
-        
-        Ok(training_id)
-    }
-    
-    /// 运行Burn训练的核心逻辑
-    async fn run_burn_training(
-        training_id: String,
-        project_path: String,
-        request: TrainingRequest,
-        stop_rx: oneshot::Receiver<()>,
-        event_tx: mpsc::UnboundedSender<TrainingEvent>,
-    ) -> Result<String, String> {
-        use crate::modules::yolo::services::burn_trainer::{TrainingConfig, BurnTrainer};
-        
-        eprintln!("[Trainer] Initializing Burn training framework...");
-        
-        // 创建训练配置
-        let config = TrainingConfig {
-            project_name: request.name.clone(),
-            epochs: request.epochs,
-            batch_size: request.batch_size,
-            image_size: request.image_size as usize,
-            num_classes: YoloDataYaml::num_classes_from_path(&project_path).unwrap_or(80),
-            optimizer: request.optimizer.clone(),
-            learning_rate: request.lr0,
-            weight_decay: request.weight_decay,
-            momentum: request.momentum,
-            warmup_epochs: request.warmup_epochs as u32,
-            device: if request.device_id >= 0 { "cuda".to_string() } else { "cpu".to_string() },
-            workers: request.workers,
-            save_period: 10, // 每10个epoch保存一次
-        };
-        
-        // 创建Burn训练器
-        let trainer = BurnTrainer::new();
-        
-        // 启动异步训练
-        match trainer.train_async(training_id.clone(), config, event_tx.clone()).await {
-            Ok(model_path) => {
-                eprintln!("[Trainer] Burn training completed successfully");
-                Ok(model_path)
-            }
-            Err(e) => {
-                eprintln!("[Trainer] Burn training failed: {}", e);
-                Err(e)
-            }
-        }
-    }
-    
-    pub async fn stop_training(&self, training_id: &str) -> Result<(), String> {
-        eprintln!("[Trainer] Stopping training: {}", training_id);
-        
+    pub async fn resume_training(&self, training_id: &str) -> Result<(), String> {
         let mut processes = self.processes.write().await;
         if let Some(handle) = processes.get_mut(training_id) {
-            if let Some(stop_tx) = handle.stop_tx.take() {
-                let _ = stop_tx.send(());
-                handle.status.running = false;
-                handle.status.paused = false;
-                eprintln!("[Trainer] Stop signal sent to training: {}", training_id);
-                Ok(())
-            } else {
-                Err("Training already stopped".to_string())
-            }
+            handle.status.paused = false;
+            Ok(())
         } else {
             Err("Training not found".to_string())
         }
     }
-    
-    pub async fn get_training_status(&self, training_id: &str) -> Option<TrainingStatus> {
-        let processes = self.processes.read().await;
-        processes.get(training_id).map(|h| h.status.clone())
+
+    pub async fn get_status(&self, training_id: &str) -> Option<TrainingStatus> {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .map(|h| h.status.clone())
     }
-    
-    pub async fn list_trainings(&self) -> Vec<(String, TrainingStatus)> {
-        let processes = self.processes.read().await;
-        processes.iter()
-            .map(|(id, handle)| (id.clone(), handle.status.clone()))
-            .collect()
+
+    pub async fn is_training(&self, training_id: &str) -> bool {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .map(|h| h.status.running)
+            .unwrap_or(false)
+    }
+
+    pub async fn get_error(&self, training_id: &str) -> Option<String> {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .and_then(|h| h.status.error.clone())
+    }
+
+    pub async fn get_model_path(&self, training_id: &str) -> Option<String> {
+        self.processes
+            .read()
+            .await
+            .get(training_id)
+            .and_then(|h| h.model_path.clone())
+    }
+
+    /// Check if a model exists locally in cache directory
+    pub async fn check_model(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
+        let cache_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(|h| std::path::PathBuf::from(h).join(".cache").join("ultralytics"))
+            .unwrap_or_else(|_| std::path::PathBuf::from(".cache/ultralytics"));
+
+        let model_path = cache_dir.join(model_name);
+
+        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            Ok((true, Some(model_path.to_string_lossy().to_string())))
+        } else {
+            Ok((false, None))
+        }
+    }
+
+    /// Download a model directly with progress tracking
+    pub async fn download_model(
+        &self,
+        model_name: &str,
+        progress_callback: impl Fn(String),
+    ) -> Result<String, String> {
+        use std::path::PathBuf;
+
+        let download_urls = [
+            format!(
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/{}",
+                model_name
+            ),
+            format!(
+                "https://github.com/ultralytics/assets/releases/download/v8.3.0/{}",
+                model_name
+            ),
+        ];
+
+        let cache_dir = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(|h| PathBuf::from(h).join(".cache").join("ultralytics"))
+            .unwrap_or_else(|_| PathBuf::from(".cache/ultralytics"));
+
+        let model_path = cache_dir.join(model_name);
+
+        // Check if model already exists
+        if model_path.exists() && model_path.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+            progress_callback(format!("模型已在缓存中: {}", model_path.display()));
+            return Ok(model_path.to_string_lossy().to_string());
+        }
+
+        if let Some(parent) = model_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+        }
+
+        progress_callback(format!("正在下载模型 {}...", model_name));
+
+        let mut last_error = String::new();
+        for url in &download_urls {
+            progress_callback(format!("尝试从 {}", url));
+
+            match self
+                .download_file_with_progress(url, &model_path, |msg| progress_callback(msg))
+                .await
+            {
+                Ok(_) => {
+                    progress_callback("正在验证模型...".to_string());
+                    if self.validate_model_file(&model_path).await {
+                        progress_callback(format!("模型已保存到: {}", model_path.display()));
+                        return Ok(model_path.to_string_lossy().to_string());
+                    } else {
+                        last_error = "模型验证失败".to_string();
+                        let _ = std::fs::remove_file(&model_path);
+                    }
+                }
+                Err(e) => {
+                    last_error = e;
+                }
+            }
+        }
+
+        Err(format!("下载失败: {}", last_error))
+    }
+
+    async fn download_file_with_progress(
+        &self,
+        url: &str,
+        path: &std::path::PathBuf,
+        progress_callback: impl Fn(String),
+    ) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("网络请求失败: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("HTTP错误: {}", response.status()));
+        }
+
+        let total_size = response.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut file = tokio::fs::File::create(path)
+            .await
+            .map_err(|e| format!("Failed to create file: {}", e))?;
+
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("下载出错: {}", e))?;
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
+                .await
+                .map_err(|e| format!("写入文件失败: {}", e))?;
+            file.flush()
+                .await
+                .map_err(|e| format!("刷新文件失败: {}", e))?;
+            downloaded += chunk.len() as u64;
+
+            if total_size > 0 {
+                let percent = (downloaded as f64 / total_size as f64 * 100.0) as u32;
+                progress_callback(format!(
+                    "下载进度: {}% ({}/{})",
+                    percent,
+                    Self::format_bytes(downloaded),
+                    Self::format_bytes(total_size)
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn validate_model_file(&self, path: &std::path::PathBuf) -> bool {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if metadata.len() < 1_000_000 {
+                eprintln!("[Trainer] Model file too small: {}", metadata.len());
+                return false;
+            }
+        }
+        true
+    }
+
+    fn format_bytes(bytes: u64) -> String {
+        const KB: u64 = 1024;
+        const MB: u64 = KB * 1024;
+        const GB: u64 = MB * 1024;
+
+        if bytes >= GB {
+            format!("{:.1} GB", bytes as f64 / GB as f64)
+        } else if bytes >= MB {
+            format!("{:.1} MB", bytes as f64 / MB as f64)
+        } else if bytes >= KB {
+            format!("{:.1} KB", bytes as f64 / KB as f64)
+        } else {
+            format!("{} B", bytes)
+        }
+    }
+}
+
+impl Default for TrainerService {
+    fn default() -> Self {
+        Self::new()
     }
 }
