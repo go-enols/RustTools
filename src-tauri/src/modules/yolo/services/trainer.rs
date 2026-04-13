@@ -456,6 +456,7 @@ impl TrainerService {
         
         // 在后台spawn训练任务
         let processes_clone = self.processes.clone();
+        let trained_models_clone = self.trained_models.clone();
         let training_id_clone = training_id.clone();
         let project_name = request.name.clone();
         let project_path_clone = project_path.clone();
@@ -495,8 +496,21 @@ impl TrainerService {
                             created_at: chrono::Utc::now().to_rfc3339(),
                         };
 
-                        if let Err(e) = self.save_trained_model(model_info).await {
-                            eprintln!("[Trainer] Failed to save trained model: {}", e);
+                        // 直接写入文件，避免在 async move 中使用 self
+                        let models_dir = Self::get_models_dir();
+                        if let Err(e) = fs::create_dir_all(&models_dir) {
+                            eprintln!("[Trainer] Failed to create models directory: {}", e);
+                        } else {
+                            let models_file = models_dir.join("trained_models.json");
+                            let mut models = trained_models_clone.write().await;
+                            models.push(model_info.clone());
+                            if let Ok(json) = serde_json::to_string_pretty(&*models) {
+                                if let Err(e) = fs::write(&models_file, json) {
+                                    eprintln!("[Trainer] Failed to save models: {}", e);
+                                } else {
+                                    eprintln!("[Trainer] Saved trained model: {} to {:?}", model_info.project_name, models_file);
+                                }
+                            }
                         }
                         // burn_trainer 会在 train() 完成时自动发送 TrainingEvent::Complete
                         // 命令层会收到并转发 "training-complete" 给前端
