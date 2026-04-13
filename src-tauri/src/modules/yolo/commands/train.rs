@@ -58,7 +58,8 @@ pub struct TrainingCompleteEvent {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrainingConfig {
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub base_model: String,
     pub epochs: u32,
     pub batch_size: u32,
@@ -127,8 +128,9 @@ pub async fn training_start(
     config: TrainingConfig,
 ) -> Result<CommandResponse<String>, String> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let name = config.name.unwrap_or_else(|| "yolo_train".to_string());
     let request = TrainingRequest {
-        name: config.name.clone(),
+        name,
         base_model: config.base_model,
         epochs: config.epochs,
         batch_size: config.batch_size,
