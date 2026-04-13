@@ -121,14 +121,16 @@ labels:
 # This file is used by ultralytics YOLO for training
 
 path: {}
-train: images/train
-val: images/val
+train: {}
+val: {}
 
 # Classes
 names:
 {}
 "#,
         project_path.to_string_lossy().replace("\\", "/"),
+        config.images.train,
+        config.images.val,
         config.classes.iter().enumerate().map(|(i, c)| format!("  {}: {}", i, c)).collect::<Vec<_>>().join("\n"),
     );
 
@@ -240,12 +242,12 @@ val_split: {}
 image_size: {}
 
 images:
-  train: images/train
-  val: images/val
+  train: {}
+  val: {}
 
 labels:
-  train: labels/train
-  val: labels/val
+  train: {}
+  val: {}
 "#,
             project_config.name,
             project_config.yolo_version,
@@ -254,6 +256,10 @@ labels:
             project_config.train_split,
             project_config.val_split,
             project_config.image_size,
+            project_config.images.train,
+            project_config.images.val,
+            project_config.labels.train,
+            project_config.labels.val,
         );
 
         fs::write(&project_yaml_path, yaml_out_content)
@@ -481,22 +487,16 @@ pub async fn import_dataset(dataset_path: String) -> Result<ProjectResponse, Str
 
     // Create project.yaml from the dataset
     let project_config = ProjectConfig {
-        name: dataset_info.name,
+        name: dataset_info.name.clone(),
         path: path.to_string_lossy().to_string(),
-        yolo_version: dataset_info.yolo_version,
-        classes: dataset_info.classes,
+        yolo_version: dataset_info.yolo_version.clone(),
+        classes: dataset_info.classes.clone(),
         train_split: dataset_info.train_split,
         val_split: dataset_info.val_split,
         image_size: dataset_info.image_size,
         description: Some(format!("从 {} 导入的数据集", dataset_path)),
-        images: DatasetPaths {
-            train: "images/train".to_string(),
-            val: "images/val".to_string(),
-        },
-        labels: DatasetPaths {
-            train: "labels/train".to_string(),
-            val: "labels/val".to_string(),
-        },
+        images: dataset_info.images.clone(),
+        labels: dataset_info.labels.clone(),
     };
 
     // Save project.yaml

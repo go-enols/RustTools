@@ -183,9 +183,10 @@ impl TrainerService {
             }
         }
         
-        // 检查模型文件是否存在
+        // 检查模型文件是否存在（前端传 yolo11s.pt，去掉后缀）
         let models_dir = Self::get_models_dir();
-        let model_path = models_dir.join(format!("{}.pt", model_name));
+        let model_key = model_name.trim_end_matches(".pt");
+        let model_path = models_dir.join(format!("{}.pt", model_key));
         
         if model_path.exists() {
             return Ok((true, Some(model_path.to_string_lossy().to_string())));
@@ -195,22 +196,49 @@ impl TrainerService {
     }
     
     /// 获取所有可用的预训练模型列表
-    /// 
-    /// 注意: 只有 YOLO11n 系列模型在 GitHub 上可用 (v8.4.0)
-    /// 其他模型 (yolo11s/m/l/x, yolov8系列) 目前返回404
-    pub fn get_available_models() -> Vec<(&'static str, &'static str, &'static str)> {
+    ///
+    /// 使用 GitHub Raw URL（raw.githubusercontent.com）直接下载，不走 CDN 重定向，
+    /// 代理（HTTP_PROXY/https_proxy）自动生效。
+    /// 模型文件后缀统一为 .pt（与前端选型一致）。
+    pub fn get_available_models() -> Vec<(&'static str, &'static str, String)> {
+        let base = "https://raw.githubusercontent.com/ultralytics/assets/main/releases/download/v8.4.0";
         vec![
-            // YOLO11n系列 (v8.4.0) - 使用 ghproxy.com 镜像加速
-            // 检测模型
-            ("yolo11n", "检测", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx"),
-            // 分割模型
-            ("yolo11n-seg", "分割", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.onnx"),
-            // 姿态估计模型
-            ("yolo11n-pose", "姿态估计", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-pose.onnx"),
-            // 旋转边界框模型
-            ("yolo11n-obb", "旋转边界框", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-obb.onnx"),
-            // 分类模型
-            ("yolo11n-cls", "分类", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-cls.onnx"),
+            // YOLO11 检测模型
+            ("yolo11n",  "检测", format!("{}/yolo11n.pt",  base)),
+            ("yolo11s",  "检测", format!("{}/yolo11s.pt",  base)),
+            ("yolo11m",  "检测", format!("{}/yolo11m.pt",  base)),
+            ("yolo11l",  "检测", format!("{}/yolo11l.pt",  base)),
+            ("yolo11x",  "检测", format!("{}/yolo11x.pt",  base)),
+            // YOLO11 分割
+            ("yolo11n-seg", "分割",     format!("{}/yolo11n-seg.pt", base)),
+            ("yolo11s-seg", "分割",     format!("{}/yolo11s-seg.pt", base)),
+            ("yolo11m-seg", "分割",     format!("{}/yolo11m-seg.pt", base)),
+            ("yolo11l-seg", "分割",     format!("{}/yolo11l-seg.pt", base)),
+            ("yolo11x-seg", "分割",     format!("{}/yolo11x-seg.pt", base)),
+            // YOLO11 姿态
+            ("yolo11n-pose", "姿态",   format!("{}/yolo11n-pose.pt", base)),
+            ("yolo11s-pose", "姿态",   format!("{}/yolo11s-pose.pt", base)),
+            ("yolo11m-pose", "姿态",   format!("{}/yolo11m-pose.pt", base)),
+            ("yolo11l-pose", "姿态",   format!("{}/yolo11l-pose.pt", base)),
+            ("yolo11x-pose", "姿态",   format!("{}/yolo11x-pose.pt", base)),
+            // YOLO11 旋转边界框
+            ("yolo11n-obb", "旋转框",  format!("{}/yolo11n-obb.pt", base)),
+            ("yolo11s-obb", "旋转框",  format!("{}/yolo11s-obb.pt", base)),
+            ("yolo11m-obb", "旋转框",  format!("{}/yolo11m-obb.pt", base)),
+            ("yolo11l-obb", "旋转框",  format!("{}/yolo11l-obb.pt", base)),
+            ("yolo11x-obb", "旋转框",  format!("{}/yolo11x-obb.pt", base)),
+            // YOLO11 分类
+            ("yolo11n-cls", "分类",    format!("{}/yolo11n-cls.pt", base)),
+            ("yolo11s-cls", "分类",    format!("{}/yolo11s-cls.pt", base)),
+            ("yolo11m-cls", "分类",    format!("{}/yolo11m-cls.pt", base)),
+            ("yolo11l-cls", "分类",    format!("{}/yolo11l-cls.pt", base)),
+            ("yolo11x-cls", "分类",    format!("{}/yolo11x-cls.pt", base)),
+            // YOLOv8 检测（部分）
+            ("yolov8n",  "检测", format!("{}/yolov8n.pt",  base)),
+            ("yolov8s",  "检测", format!("{}/yolov8s.pt",  base)),
+            ("yolov8m",  "检测", format!("{}/yolov8m.pt",  base)),
+            ("yolov8l",  "检测", format!("{}/yolov8l.pt",  base)),
+            ("yolov8x",  "检测", format!("{}/yolov8x.pt",  base)),
         ]
     }
     
@@ -231,12 +259,12 @@ impl TrainerService {
         
         progress_callback(format!("开始下载模型: {}", model_name));
         
-        // 获取模型URL
+        // 获取模型URL（前端传 yolo11s.pt，后端key为 yolo11s）
         let model_urls = Self::get_available_models();
-        let model_key = model_name.to_lowercase();
+        let model_key = model_name.trim_end_matches(".pt").to_lowercase();
         let url = model_urls.iter()
             .find(|(name, _, _)| *name == model_key)
-            .map(|(_, _, url)| url)
+            .map(|(_, _, url)| url.clone())
             .ok_or_else(|| {
                 let available: Vec<String> = model_urls.iter()
                     .map(|(name, desc, _)| format!("{} ({})", name, desc))
@@ -251,7 +279,7 @@ impl TrainerService {
         fs::create_dir_all(&models_dir)
             .map_err(|e| format!("创建模型目录失败: {}", e))?;
         
-        let model_path = models_dir.join(format!("{}.onnx", model_name));
+        let model_path = models_dir.join(format!("{}.pt", model_name.trim_end_matches(".pt")));
         
         // 如果模型已存在，检查文件完整性（不为空）
         if model_path.exists() {
@@ -277,7 +305,7 @@ impl TrainerService {
             .build()
             .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
         
-        let response = client.get(*url)
+        let response = client.get(&url)
             .send()
             .await
             .map_err(|e| format!("下载失败: {}\n请检查网络连接或代理设置", e))?;
@@ -344,16 +372,16 @@ impl TrainerService {
     /// 检查模型是否已下载
     pub async fn is_model_downloaded(&self, model_name: &str) -> Result<(bool, Option<String>), String> {
         let model_urls = Self::get_available_models();
-        let model_key = model_name.to_lowercase();
-        
+        let model_key = model_name.trim_end_matches(".pt").to_lowercase();
+
         // 检查是否是已知的模型
         let is_known = model_urls.iter().any(|(name, _, _)| *name == model_key);
         if !is_known {
             return Err(format!("未知的模型: {}", model_key));
         }
-        
+
         let models_dir = Self::get_models_dir();
-        let model_path = models_dir.join(format!("{}.onnx", model_key));
+        let model_path = models_dir.join(format!("{}.pt", model_key));
         
         if model_path.exists() {
             let metadata = fs::metadata(&model_path)
