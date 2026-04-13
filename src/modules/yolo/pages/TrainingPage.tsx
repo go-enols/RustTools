@@ -884,6 +884,7 @@ export default function TrainingPage() {
                   id="amp"
                   checked={config.amp}
                   onChange={(e) => setConfig({ ...config, amp: e.target.checked })}
+                  className="checkbox"
                 />
                 <label htmlFor="amp" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>混合精度 (AMP)</label>
               </div>
@@ -893,6 +894,7 @@ export default function TrainingPage() {
                   id="cos_lr"
                   checked={config.cos_lr}
                   onChange={(e) => setConfig({ ...config, cos_lr: e.target.checked })}
+                  className="checkbox"
                 />
                 <label htmlFor="cos_lr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>余弦学习率</label>
               </div>
@@ -902,6 +904,7 @@ export default function TrainingPage() {
                   id="rect"
                   checked={config.rect}
                   onChange={(e) => setConfig({ ...config, rect: e.target.checked })}
+                  className="checkbox"
                 />
                 <label htmlFor="rect" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>矩形训练</label>
               </div>
@@ -911,6 +914,7 @@ export default function TrainingPage() {
                   id="cache"
                   checked={config.cache}
                   onChange={(e) => setConfig({ ...config, cache: e.target.checked })}
+                  className="checkbox"
                 />
                 <label htmlFor="cache" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缓存图像</label>
               </div>

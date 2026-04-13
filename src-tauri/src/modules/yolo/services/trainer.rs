@@ -200,17 +200,17 @@ impl TrainerService {
     /// 其他模型 (yolo11s/m/l/x, yolov8系列) 目前返回404
     pub fn get_available_models() -> Vec<(&'static str, &'static str, &'static str)> {
         vec![
-            // YOLO11n系列 (v8.4.0) - 仅此版本可用
+            // YOLO11n系列 (v8.4.0) - 使用 ghproxy.com 镜像加速
             // 检测模型
-            ("yolo11n", "检测", "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx"),
+            ("yolo11n", "检测", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx"),
             // 分割模型
-            ("yolo11n-seg", "分割", "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.onnx"),
+            ("yolo11n-seg", "分割", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.onnx"),
             // 姿态估计模型
-            ("yolo11n-pose", "姿态估计", "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-pose.onnx"),
+            ("yolo11n-pose", "姿态估计", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-pose.onnx"),
             // 旋转边界框模型
-            ("yolo11n-obb", "旋转边界框", "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-obb.onnx"),
+            ("yolo11n-obb", "旋转边界框", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-obb.onnx"),
             // 分类模型
-            ("yolo11n-cls", "分类", "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-cls.onnx"),
+            ("yolo11n-cls", "分类", "https://ghproxy.com/https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-cls.onnx"),
         ]
     }
     
