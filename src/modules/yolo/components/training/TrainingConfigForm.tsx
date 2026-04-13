@@ -20,11 +20,10 @@ const YOLO_MODELS = [
 
 interface TrainingConfigFormProps {
   config: TrainingConfig;
-  cudaAvailable: boolean;
   onConfigChange: (config: TrainingConfig) => void;
 }
 
-export default function TrainingConfigForm({ config, cudaAvailable, onConfigChange }: TrainingConfigFormProps) {
+export default function TrainingConfigForm({ config, onConfigChange }: TrainingConfigFormProps) {
   const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     onConfigChange({ ...config, base_model: e.target.value });
   };

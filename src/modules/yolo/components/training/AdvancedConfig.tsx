@@ -1,23 +1,19 @@
-import { Settings2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { Settings2, ChevronDown, ChevronUp } from 'lucide-react';
 import { TrainingConfig } from '../../../../core/stores/trainingStore';
 import styles from '../../pages/TrainingPage.module.css';
 
 interface AdvancedConfigProps {
   config: TrainingConfig;
   showAdvanced: boolean;
-  cudaAvailable: boolean;
   onToggleAdvanced: () => void;
   onConfigChange: (config: TrainingConfig) => void;
-  onRefreshCUDA: () => void;
 }
 
 export default function AdvancedConfig({
   config,
   showAdvanced,
-  cudaAvailable,
   onToggleAdvanced,
   onConfigChange,
-  onRefreshCUDA,
 }: AdvancedConfigProps) {
   return (
     <>

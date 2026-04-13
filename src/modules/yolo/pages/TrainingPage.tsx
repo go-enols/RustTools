@@ -1,28 +1,23 @@
 import { useState, useEffect } from 'react';
-import {
-  Play,
-  Square,
-  Settings2,
-  ChevronDown,
-  ChevronUp,
-  RefreshCw,
-  FolderOpen,
-} from 'lucide-react';
+import { Settings2, RefreshCw } from 'lucide-react';
 import { useTrainingStore, TrainingConfig } from '../../../core/stores/trainingStore';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
+import { useToast } from '../../../shared/hooks/useToast';
 import {
   checkModel,
   downloadModel,
   checkPythonEnv,
-  selectFile,
 } from '../../../core/api';
 import { listen } from '@tauri-apps/api/event';
 import { DownloadModal } from '../../../shared/components/ui/Modal';
 
-// 移除前端重复的类型定义，统一使用 API 层的类型
-// 模型下载已统一使用后端镜像源
-// 后端实现了三个镜像源：ghproxy、hf-mirror、GitHub 直连
-// 前端无需定义下载 URL，统一调用 downloadModel() API
+import TrainingHeader from '../components/training/TrainingHeader';
+import TrainingProgress from '../components/training/TrainingProgress';
+import TrainingConfigForm from '../components/training/TrainingConfigForm';
+import TrainingLogs from '../components/training/TrainingLogs';
+import AdvancedConfig from '../components/training/AdvancedConfig';
+
+import styles from './TrainingPage.module.css';
 
 const defaultConfig: TrainingConfig = {
   base_model: 'yolo11s.pt',
@@ -62,7 +57,8 @@ const defaultConfig: TrainingConfig = {
 };
 
 export default function TrainingPage() {
-  const { isTraining, currentEpoch, totalEpochs, metrics, error, startTraining, stopTraining, clearError } = useTrainingStore();
+  const { isTraining, currentEpoch, totalEpochs, metrics, error, startTraining, stopTraining, clearError } =
+    useTrainingStore();
   const [config, setConfig] = useState<TrainingConfig>(defaultConfig);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [elapsedTime, setElapsedTime] = useState('00:00:00');
@@ -70,7 +66,9 @@ export default function TrainingPage() {
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
   const [downloadError, setDownloadError] = useState('');
-  const [cudaAvailable, setCudaAvailable] = useState(true); // 默认启用 GPU，因为用户 PyTorch CUDA 正常
+  const [cudaAvailable, setCudaAvailable] = useState(true);
+
+  const toast = useToast();
 
   // Listen for model download progress
   useEffect(() => {
@@ -78,19 +76,27 @@ export default function TrainingPage() {
       setDownloadProgress(event.payload.message);
     });
     return () => {
-      unlisten.then(fn => fn());
+      unlisten.then((fn) => fn());
     };
   }, []);
 
   // Listen for training started event (includes CUDA info from Python sidecar)
   useEffect(() => {
-    const unlisten = listen<{ training_id: string; cuda_available: boolean; cuda_version: string | null }>('training-started', (event) => {
+    const unlisten = listen<{
+      training_id: string;
+      cuda_available: boolean;
+      cuda_version: string | null;
+    }>('training-started', (event) => {
       const { cuda_available, cuda_version } = event.payload;
-      console.log('[TrainingPage] Received training-started event: cuda_available=%s, cuda_version=%s', cuda_available, cuda_version);
+      console.log(
+        '[TrainingPage] Received training-started event: cuda_available=%s, cuda_version=%s',
+        cuda_available,
+        cuda_version
+      );
       setCudaAvailable(cuda_available);
     });
     return () => {
-      unlisten.then(fn => fn());
+      unlisten.then((fn) => fn());
     };
   }, []);
 
@@ -107,7 +113,11 @@ export default function TrainingPage() {
         const hours = Math.floor(diff / 3600);
         const mins = Math.floor((diff % 3600) / 60);
         const secs = diff % 60;
-        setElapsedTime(`${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+        setElapsedTime(
+          `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs
+            .toString()
+            .padStart(2, '0')}`
+        );
 
         if (currentEpoch > 0) {
           const avgTimePerEpoch = diff / currentEpoch;
@@ -115,7 +125,11 @@ export default function TrainingPage() {
           const remHours = Math.floor(remaining / 3600);
           const remMins = Math.floor((remaining % 3600) / 60);
           const remSecs = remaining % 60;
-          setRemainingTime(`${remHours.toString().padStart(2, '0')}:${remMins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')}`);
+          setRemainingTime(
+            `${remHours.toString().padStart(2, '0')}:${remMins.toString().padStart(2, '0')}:${remSecs
+              .toString()
+              .padStart(2, '0')}`
+          );
         }
       }
     }, 1000);
@@ -127,7 +141,7 @@ export default function TrainingPage() {
     // Check if a project is open
     const { currentProject } = useWorkspaceStore.getState();
     if (!currentProject) {
-      alert('请先打开一个项目才能开始训练');
+      toast.warning('请先打开一个项目才能开始训练');
       return;
     }
 
@@ -143,20 +157,20 @@ export default function TrainingPage() {
     const checkResult = await checkModel(modelName);
 
     let modelPath = modelName;
-    
+
     // Model exists, use the full path
     if (checkResult.success && checkResult.data?.exists && checkResult.data.path) {
       console.log(`[Training] 模型已存在: ${checkResult.data.path}`);
       modelPath = checkResult.data.path;
-    } 
+    }
     // Model doesn't exist or check failed, download it
     else {
       console.log(`[Training] 模型不存在或检查失败，开始下载: ${modelName}`);
-      
+
       if (checkResult.error) {
         console.warn(`[Training] 检查模型失败: ${checkResult.error}，将尝试下载`);
       }
-      
+
       setShowDownloadModal(true);
       setDownloadProgress(`正在下载 ${modelName}...`);
       setDownloadError('');
@@ -184,23 +198,23 @@ export default function TrainingPage() {
   // 手动下载模型 - 统一使用后端镜像下载
   const handleManualDownload = async () => {
     const modelName = config.base_model;
-    
+
     if (modelName.startsWith('custom:')) {
-      alert('自定义模型无需下载');
+      toast.info('自定义模型无需下载');
       return;
     }
-    
+
     // 直接调用后端下载，使用镜像源
     setShowDownloadModal(true);
     setDownloadProgress(`正在下载 ${modelName}...`);
     setDownloadError('');
-    
+
     const result = await downloadModel(modelName);
-    
+
     if (result.success && result.data?.success) {
       console.log(`[Training] 模型下载成功: ${result.data.path}`);
       setShowDownloadModal(false);
-      alert(`✅ 模型下载成功！\n\n保存路径: ${result.data.path}\n\n请重新点击"开始训练"开始训练。`);
+      toast.success(`模型下载成功！保存路径: ${result.data.path}`);
     } else {
       const errorMsg = result.error || result.data?.error || '模型下载失败';
       console.error(`[Training] 模型下载失败: ${errorMsg}`);
@@ -208,354 +222,67 @@ export default function TrainingPage() {
       // 保持弹窗打开，让用户选择重试或关闭
     }
   };
-  
+
   // 关闭下载弹窗
   const handleCloseDownloadModal = () => {
     setShowDownloadModal(false);
     setDownloadProgress('');
     setDownloadError('');
   };
-  
+
   // 重试下载
   const handleRetryDownload = () => {
     handleManualDownload();
   };
 
+  // Refresh CUDA status
+  const handleRefreshCUDA = async () => {
+    const result = await checkPythonEnv();
+    if (result.success && result.data) {
+      setCudaAvailable(result.data.cuda_available);
+    }
+  };
+
   const batchProgress = useTrainingStore((s) => s.batchProgress);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className={styles.pageContainer}>
       {/* Header */}
-      <div className="content-header">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <h1 className="text-lg font-semibold">模型训练</h1>
-            <p className="text-sm text-tertiary mt-sm">训练YOLO目标检测模型</p>
-          </div>
-          <div style={{ display: 'flex', gap: 'var(--spacing-md)', alignItems: 'center' }}>
-            {!isTraining ? (
-              <button className="btn btn-primary" onClick={handleStartTraining}>
-                <Play size={16} />
-                开始训练
-              </button>
-            ) : (
-              <button className="btn btn-danger" onClick={stopTraining}>
-                <Square size={16} />
-                停止训练
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <TrainingHeader
+        isTraining={isTraining}
+        onStartTraining={handleStartTraining}
+        onStopTraining={stopTraining}
+      />
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflow: 'auto', padding: 'var(--spacing-lg)' }}>
+      <div className={styles.mainContent}>
+        <div className={styles.leftPanel}>
           {/* Training Controls */}
-          <div className="training-controls" style={{ marginBottom: 'var(--spacing-lg)' }}>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--spacing-xl)' }}>
-              <div>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>基础模型</span>
-                <select
-                  className="select"
-                  value={config.base_model}
-                  onChange={(e) => setConfig({ ...config, base_model: e.target.value })}
-                  style={{ marginLeft: 8, minWidth: 200 }}
-                >
-                  <optgroup label="YOLO26 (最新)">
-                    <option value="yolo26n.pt">YOLO26n - 最小/最快</option>
-                    <option value="yolo26s.pt">YOLO26s - 小/快</option>
-                    <option value="yolo26m.pt">YOLO26m - 中/平衡</option>
-                    <option value="yolo26l.pt">YOLO26l - 大/准</option>
-                    <option value="yolo26x.pt">YOLO26x - 最大/最准</option>
-                    <option value="yolo26n-cls.pt">YOLO26n-CLS - 最小/分类</option>
-                    <option value="yolo26s-cls.pt">YOLO26s-CLS - 小/分类</option>
-                    <option value="yolo26m-cls.pt">YOLO26m-CLS - 中/分类</option>
-                    <option value="yolo26l-cls.pt">YOLO26l-CLS - 大/分类</option>
-                    <option value="yolo26x-cls.pt">YOLO26x-CLS - 最大/分类</option>
-                    <option value="yolo26n-seg.pt">YOLO26n-SEG - 最小/分割</option>
-                    <option value="yolo26s-seg.pt">YOLO26s-SEG - 小/分割</option>
-                    <option value="yolo26m-seg.pt">YOLO26m-SEG - 中/分割</option>
-                    <option value="yolo26l-seg.pt">YOLO26l-SEG - 大/分割</option>
-                    <option value="yolo26x-seg.pt">YOLO26x-SEG - 最大/分割</option>
-                  </optgroup>
-                  <optgroup label="YOLO12 (新版)">
-                    <option value="yolo12n.pt">YOLO12n - 最小/最快</option>
-                    <option value="yolo12s.pt">YOLO12s - 小/快</option>
-                    <option value="yolo12m.pt">YOLO12m - 中/平衡</option>
-                    <option value="yolo12l.pt">YOLO12l - 大/准</option>
-                    <option value="yolo12x.pt">YOLO12x - 最大/最准</option>
-                    <option value="yolo12n-cls.pt">YOLO12n-CLS - 最小/分类</option>
-                    <option value="yolo12s-cls.pt">YOLO12s-CLS - 小/分类</option>
-                    <option value="yolo12m-cls.pt">YOLO12m-CLS - 中/分类</option>
-                    <option value="yolo12l-cls.pt">YOLO12l-CLS - 大/分类</option>
-                    <option value="yolo12x-cls.pt">YOLO12x-CLS - 最大/分类</option>
-                    <option value="yolo12n-seg.pt">YOLO12n-SEG - 最小/分割</option>
-                    <option value="yolo12s-seg.pt">YOLO12s-SEG - 小/分割</option>
-                    <option value="yolo12m-seg.pt">YOLO12m-SEG - 中/分割</option>
-                    <option value="yolo12l-seg.pt">YOLO12l-SEG - 大/分割</option>
-                    <option value="yolo12x-seg.pt">YOLO12x-SEG - 最大/分割</option>
-                  </optgroup>
-                  <optgroup label="YOLO11">
-                    <option value="yolo11n.pt">YOLO11n - 最小/最快</option>
-                    <option value="yolo11s.pt">YOLO11s - 小/快</option>
-                    <option value="yolo11m.pt">YOLO11m - 中/平衡</option>
-                    <option value="yolo11l.pt">YOLO11l - 大/准</option>
-                    <option value="yolo11x.pt">YOLO11x - 最大/最准</option>
-                    <option value="yolo11n-cls.pt">YOLO11n-CLS - 最小/分类</option>
-                    <option value="yolo11s-cls.pt">YOLO11s-CLS - 小/分类</option>
-                    <option value="yolo11m-cls.pt">YOLO11m-CLS - 中/分类</option>
-                    <option value="yolo11l-cls.pt">YOLO11l-CLS - 大/分类</option>
-                    <option value="yolo11x-cls.pt">YOLO11x-CLS - 最大/分类</option>
-                    <option value="yolo11n-seg.pt">YOLO11n-SEG - 最小/分割</option>
-                    <option value="yolo11s-seg.pt">YOLO11s-SEG - 小/分割</option>
-                    <option value="yolo11m-seg.pt">YOLO11m-SEG - 中/分割</option>
-                    <option value="yolo11l-seg.pt">YOLO11l-SEG - 大/分割</option>
-                    <option value="yolo11x-seg.pt">YOLO11x-SEG - 最大/分割</option>
-                    <option value="yolo11n-pose.pt">YOLO11n-POSE - 最小/姿态</option>
-                    <option value="yolo11s-pose.pt">YOLO11s-POSE - 小/姿态</option>
-                    <option value="yolo11m-pose.pt">YOLO11m-POSE - 中/姿态</option>
-                    <option value="yolo11l-pose.pt">YOLO11l-POSE - 大/姿态</option>
-                    <option value="yolo11x-pose.pt">YOLO11x-POSE - 最大/姿态</option>
-                    <option value="yolo11n-obb.pt">YOLO11n-OBB - 最小/旋转框</option>
-                    <option value="yolo11s-obb.pt">YOLO11s-OBB - 小/旋转框</option>
-                    <option value="yolo11m-obb.pt">YOLO11m-OBB - 中/旋转框</option>
-                    <option value="yolo11l-obb.pt">YOLO11l-OBB - 大/旋转框</option>
-                    <option value="yolo11x-obb.pt">YOLO11x-OBB - 最大/旋转框</option>
-                  </optgroup>
-                  <optgroup label="YOLOv10">
-                    <option value="yolo10n.pt">YOLOv10n - 最小/最快</option>
-                    <option value="yolo10s.pt">YOLOv10s - 小/快</option>
-                    <option value="yolo10m.pt">YOLOv10m - 中/平衡</option>
-                    <option value="yolo10b.pt">YOLOv10b - 中/双头</option>
-                    <option value="yolo10l.pt">YOLOv10l - 大/准</option>
-                    <option value="yolo10x.pt">YOLOv10x - 最大/最准</option>
-                  </optgroup>
-                  <optgroup label="YOLOv9">
-                    <option value="yolov9t.pt">YOLOv9t - 最小/最快</option>
-                    <option value="yolov9s.pt">YOLOv9s - 小/快</option>
-                    <option value="yolov9m.pt">YOLOv9m - 中/平衡</option>
-                    <option value="yolov9c.pt">YOLOv9c - 平衡/紧凑</option>
-                    <option value="yolov9e.pt">YOLOv9e - 最大/最准</option>
-                  </optgroup>
-                  <optgroup label="YOLOv6">
-                    <option value="yolov6n.pt">YOLOv6n - 最小/最快</option>
-                    <option value="yolov6s.pt">YOLOv6s - 小/快</option>
-                    <option value="yolov6m.pt">YOLOv6m - 中/平衡</option>
-                    <option value="yolov6l.pt">YOLOv6l - 大/准</option>
-                    <option value="yolov6x.pt">YOLOv6x - 最大/最准</option>
-                  </optgroup>
-                  <optgroup label="YOLOv8">
-                    <option value="yolov8n.pt">YOLOv8n - 最小/最快</option>
-                    <option value="yolov8s.pt">YOLOv8s - 小/快</option>
-                    <option value="yolov8m.pt">YOLOv8m - 中/平衡</option>
-                    <option value="yolov8l.pt">YOLOv8l - 大/准</option>
-                    <option value="yolov8x.pt">YOLOv8x - 最大/最准</option>
-                    <option value="yolov8n6.pt">YOLOv8n6 - 640输入/最小</option>
-                    <option value="yolov8s6.pt">YOLOv8s6 - 640输入/小</option>
-                    <option value="yolov8m6.pt">YOLOv8m6 - 640输入/中</option>
-                    <option value="yolov8l6.pt">YOLOv8l6 - 640输入/大</option>
-                    <option value="yolov8x6.pt">YOLOv8x6 - 640输入/最大</option>
-                  </optgroup>
-                  <optgroup label="YOLOv5">
-                    <option value="yolov5n.pt">YOLOv5n - 最小/最快</option>
-                    <option value="yolov5s.pt">YOLOv5s - 小/快</option>
-                    <option value="yolov5m.pt">YOLOv5m - 中/平衡</option>
-                    <option value="yolov5l.pt">YOLOv5l - 大/准</option>
-                    <option value="yolov5x.pt">YOLOv5x - 最大/最准</option>
-                    <option value="yolov5n6.pt">YOLOv5n6 - 1280输入/最小</option>
-                    <option value="yolov5s6.pt">YOLOv5s6 - 1280输入/小</option>
-                    <option value="yolov5m6.pt">YOLOv5m6 - 1280输入/中</option>
-                    <option value="yolov5l6.pt">YOLOv5l6 - 1280输入/大</option>
-                    <option value="yolov5x6.pt">YOLOv5x6 - 1280输入/最大</option>
-                  </optgroup>
-                  <optgroup label="YOLOv3">
-                    <option value="yolov3u.pt">YOLOv3u - 原版升级</option>
-                    <option value="yolov3-spp.pt">YOLOv3-spp - SPP层增强</option>
-                    <option value="yolov3-tiny.pt">YOLOv3-tiny - 极小/最快</option>
-                    <option value="yolov3-son.pt">YOLOv3-son - 改进版</option>
-                  </optgroup>
-                </select>
-              </div>
-              {config.base_model.startsWith('custom:') && (
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="输入自定义模型路径，如 C:\Users\xxx\model.pt"
-                  value={config.base_model.replace('custom:', '')}
-                  onChange={(e) => setConfig({ ...config, base_model: `custom:${e.target.value}` })}
-                  style={{ marginLeft: 8, minWidth: 300 }}
-                />
-              )}
-              <button
-                className="btn btn-secondary"
-                onClick={async () => {
-                  const result = await selectFile('选择模型文件', [{ name: 'YOLO Model', extensions: ['pt', 'pth'] }]);
-                  if (!result.canceled && result.path) {
-                    setConfig({ ...config, base_model: `custom:${result.path}` });
-                  }
-                }}
-                style={{ marginLeft: 8 }}
-              >
-                <FolderOpen size={14} />
-              </button>
-              <div>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>训练轮次</span>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.epochs === 0 ? '' : config.epochs}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '') {
-                      setConfig({ ...config, epochs: 0 });
-                    } else {
-                      const num = parseInt(val);
-                      if (!isNaN(num)) {
-                        setConfig({ ...config, epochs: num });
-                      }
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.epochs === 0) {
-                      setConfig({ ...config, epochs: 50 });
-                    }
-                  }}
-                  style={{ width: 80, marginLeft: 8, textAlign: 'center' }}
-                />
-              </div>
-              <div>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>批处理</span>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.batch_size === 0 ? '' : config.batch_size}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, batch_size: 0 });
-                    } else {
-                      const num = parseInt(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, batch_size: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.batch_size === 0) setConfig({ ...config, batch_size: 12 });
-                  }}
-                  style={{ width: 60, marginLeft: 8, textAlign: 'center' }}
-                />
-              </div>
-            </div>
-          </div>
+          <TrainingConfigForm
+            config={config}
+            onConfigChange={setConfig}
+          />
 
           {/* Progress */}
           {isTraining && (
-            <div className="card" style={{ marginBottom: 'var(--spacing-lg)', border: '1px solid var(--accent-primary)', background: 'rgba(22, 119, 255, 0.05)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)' }}>
-                <span style={{ fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }}>
-                  总进度 Epoch {currentEpoch} / {totalEpochs}
-                </span>
-                <span style={{ fontSize: 14, color: 'var(--accent-primary)', fontWeight: 600 }}>
-                  {totalEpochs > 0 ? ((currentEpoch / totalEpochs) * 100).toFixed(1) : 0}%
-                </span>
-              </div>
-              <div className="progress-bar" style={{ height: 16 }}>
-                <div className="progress-fill" style={{ width: `${totalEpochs > 0 ? (currentEpoch / totalEpochs) * 100 : 0}%` }} />
-              </div>
-
-              {batchProgress && batchProgress.batch > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-sm)', marginTop: 'var(--spacing-md)' }}>
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-                      当前 Epoch 进度 Batch {batchProgress.batch}{batchProgress.totalBatches > 0 ? ` / ${batchProgress.totalBatches}` : ''}
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {batchProgress.totalBatches > 0
-                        ? `${((batchProgress.batch / batchProgress.totalBatches) * 100).toFixed(1)}%`
-                        : `${batchProgress.batch} batches`}
-                    </span>
-                  </div>
-                  <div className="progress-bar" style={{ height: 8, background: 'var(--border-default)' }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${batchProgress.totalBatches > 0 ? Math.min((batchProgress.batch / batchProgress.totalBatches) * 100, 100) : 0}%`,
-                      background: batchProgress.totalBatches > 0 ? 'var(--accent-secondary, #10b981)' : 'var(--border-default)',
-                      borderRadius: 'var(--radius-full)',
-                      transition: 'width 0.3s'
-                    }} />
-                  </div>
-                </>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--spacing-md)', marginTop: 'var(--spacing-lg)' }}>
-                <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>已用时间</div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{elapsedTime}</div>
-                </div>
-                <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>预计剩余</div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{remainingTime}</div>
-                </div>
-                {metrics.length > 0 && (
-                  <>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainBoxLoss.toFixed(4)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{metrics[metrics.length - 1].trainClsLoss.toFixed(4)}</div>
-                    </div>
-                  </>
-                )}
-                {batchProgress && (
-                  <>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Box Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{batchProgress.boxLoss.toFixed(4)}</div>
-                    </div>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Cls Loss</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{batchProgress.clsLoss.toFixed(4)}</div>
-                    </div>
-                  </>
-                )}
-                {metrics.length > 0 && metrics[metrics.length - 1].map50 > 0 && (
-                  <>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>mAP50</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent-primary)' }}>{(metrics[metrics.length - 1].map50 * 100).toFixed(1)}%</div>
-                    </div>
-                    <div style={{ textAlign: 'center', padding: 'var(--spacing-md)', background: 'var(--bg-surface)', borderRadius: 8 }}>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Precision</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>{(metrics[metrics.length - 1].precision * 100).toFixed(1)}%</div>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            <TrainingProgress
+              currentEpoch={currentEpoch}
+              totalEpochs={totalEpochs}
+              elapsedTime={elapsedTime}
+              remainingTime={remainingTime}
+              metrics={metrics}
+              batchProgress={batchProgress}
+            />
           )}
 
           {/* Error Display */}
           {error && (
-            <div className="card" style={{ marginBottom: 'var(--spacing-lg)', border: '1px solid var(--color-danger, #ff4d4f)', background: 'rgba(255, 77, 79, 0.1)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className={styles.errorCard}>
+              <div className={styles.errorHeader}>
                 <div>
-                  <div style={{ fontSize: 14, color: 'var(--color-danger, #ff4d4f)', fontWeight: 500, marginBottom: 4 }}>
-                    训练错误
-                  </div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {error}
-                  </div>
+                  <div className={styles.errorTitle}>训练错误</div>
+                  <div className={styles.errorMessage}>{error}</div>
                 </div>
-                <button
-                  onClick={clearError}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: 8,
-                    color: 'var(--text-tertiary)'
-                  }}
-                >
+                <button onClick={clearError} className={styles.errorCloseBtn}>
                   ✕
                 </button>
               </div>
@@ -563,37 +290,23 @@ export default function TrainingPage() {
           )}
 
           {/* Log Panel */}
-          <div className="card" style={{ marginBottom: 'var(--spacing-lg)' }}>
-            <div className="card-header">
-              <span className="card-title">训练日志</span>
-            </div>
-            <div className="log-panel" style={{ maxHeight: 300, overflow: 'auto' }}>
-              {metrics.length === 0 ? (
-                <div className="log-entry">等待开始训练...</div>
-              ) : (
-                metrics.slice(-20).map((m, i) => (
-                  <div key={i} className="log-entry">
-                    Epoch {m.epoch}: box_loss={m.trainBoxLoss.toFixed(4)}, cls_loss={m.trainClsLoss.toFixed(4)}, mAP50={m.map50.toFixed(4)}, precision={m.precision.toFixed(4)}, recall={m.recall.toFixed(4)}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          <TrainingLogs metrics={metrics} />
         </div>
 
         {/* Right Panel */}
-        <div className="right-panel" style={{ width: 280, overflow: 'auto', borderLeft: '1px solid var(--border-default)', background: 'var(--bg-surface)' }}>
-          <div className="panel-section">
-            <div className="panel-section-title">
+        <div className={styles.rightPanel}>
+          {/* Basic Parameters */}
+          <div className={styles.panelSection}>
+            <div className={styles.panelSectionTitle}>
               <Settings2 size={14} />
               基础参数
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
+            <div className={styles.panelSectionContent}>
               <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>图像大小</label>
+                <label className={styles.inlineLabel}>图像大小</label>
                 <input
                   type="number"
-                  className="input"
+                  className={styles.input}
                   value={config.image_size === 0 ? '' : config.image_size}
                   onChange={(e) => {
                     if (e.target.value === '') {
@@ -610,11 +323,9 @@ export default function TrainingPage() {
                 />
               </div>
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>设备</label>
-                </div>
+                <label className={styles.inlineLabel}>设备</label>
                 <select
-                  className="select"
+                  className={styles.select}
                   value={config.device_id}
                   onChange={(e) => setConfig({ ...config, device_id: parseInt(e.target.value) })}
                   style={{ width: '100%', marginTop: 4 }}
@@ -629,13 +340,16 @@ export default function TrainingPage() {
                   )}
                 </select>
                 <button
-                  onClick={async () => {
-                    const result = await checkPythonEnv();
-                    if (result.success && result.data) {
-                      setCudaAvailable(result.data.cuda_available);
-                    }
+                  onClick={handleRefreshCUDA}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 2,
+                    color: '#94a3b8',
+                    display: 'flex',
+                    alignItems: 'center',
                   }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center' }}
                   title="重新检测 CUDA"
                 >
                   <RefreshCw size={12} />
@@ -644,322 +358,13 @@ export default function TrainingPage() {
             </div>
           </div>
 
-          <div className="panel-section">
-            <div
-              className="panel-section-title"
-              style={{ cursor: 'pointer' }}
-              onClick={() => setShowAdvanced(!showAdvanced)}
-            >
-              <Settings2 size={14} />
-              数据增强
-              {showAdvanced ? <ChevronUp size={14} style={{ marginLeft: 'auto' }} /> : <ChevronDown size={14} style={{ marginLeft: 'auto' }} />}
-            </div>
-            {showAdvanced && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV色调</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={config.hsv_h}
-                    onChange={(e) => setConfig({ ...config, hsv_h: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_h.toFixed(2)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV饱和度</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={config.hsv_s}
-                    onChange={(e) => setConfig({ ...config, hsv_s: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_s.toFixed(2)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>HSV亮度</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={config.hsv_v}
-                    onChange={(e) => setConfig({ ...config, hsv_v: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.hsv_v.toFixed(2)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>平移</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="0.5"
-                    step="0.05"
-                    value={config.translate}
-                    onChange={(e) => setConfig({ ...config, translate: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.translate.toFixed(2)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缩放</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={config.scale}
-                    onChange={(e) => setConfig({ ...config, scale: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.scale.toFixed(2)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>翻转概率</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={config.fliplr}
-                    onChange={(e) => setConfig({ ...config, fliplr: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.fliplr.toFixed(1)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={config.mosaic}
-                    onChange={(e) => setConfig({ ...config, mosaic: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mosaic.toFixed(1)}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>MixUp</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={config.mixup}
-                    onChange={(e) => setConfig({ ...config, mixup: parseFloat(e.target.value) })}
-                    className="slider"
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{config.mixup.toFixed(1)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Optimizer Parameters */}
-          <div className="panel-section">
-            <div className="panel-section-title">
-              <Settings2 size={14} />
-              优化器
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>优化器</label>
-                <select
-                  className="select"
-                  value={config.optimizer}
-                  onChange={(e) => setConfig({ ...config, optimizer: e.target.value as 'SGD' | 'Adam' | 'AdamW' })}
-                  style={{ width: '100%', marginTop: 4 }}
-                >
-                  <option value="SGD">SGD</option>
-                  <option value="Adam">Adam</option>
-                  <option value="AdamW">AdamW</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>初始学习率</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.lr0}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, lr0: 0 });
-                    } else {
-                      const num = parseFloat(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, lr0: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.lr0 === 0) setConfig({ ...config, lr0: 0.01 });
-                  }}
-                  step="0.001"
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>最终学习率因子</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.lrf}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, lrf: 0 });
-                    } else {
-                      const num = parseFloat(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, lrf: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.lrf === 0) setConfig({ ...config, lrf: 0.01 });
-                  }}
-                  step="0.001"
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>动量</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.momentum}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, momentum: 0 });
-                    } else {
-                      const num = parseFloat(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, momentum: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.momentum === 0) setConfig({ ...config, momentum: 0.937 });
-                  }}
-                  step="0.001"
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>权重衰减</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.weight_decay}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, weight_decay: 0 });
-                    } else {
-                      const num = parseFloat(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, weight_decay: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.weight_decay === 0) setConfig({ ...config, weight_decay: 0.0005 });
-                  }}
-                  step="0.0001"
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Advanced Settings */}
-          <div className="panel-section">
-            <div className="panel-section-title">
-              <Settings2 size={14} />
-              高级设置
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-md)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                <input
-                  type="checkbox"
-                  id="amp"
-                  checked={config.amp}
-                  onChange={(e) => setConfig({ ...config, amp: e.target.checked })}
-                  className="checkbox"
-                />
-                <label htmlFor="amp" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>混合精度 (AMP)</label>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                <input
-                  type="checkbox"
-                  id="cos_lr"
-                  checked={config.cos_lr}
-                  onChange={(e) => setConfig({ ...config, cos_lr: e.target.checked })}
-                  className="checkbox"
-                />
-                <label htmlFor="cos_lr" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>余弦学习率</label>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                <input
-                  type="checkbox"
-                  id="rect"
-                  checked={config.rect}
-                  onChange={(e) => setConfig({ ...config, rect: e.target.checked })}
-                  className="checkbox"
-                />
-                <label htmlFor="rect" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>矩形训练</label>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-sm)' }}>
-                <input
-                  type="checkbox"
-                  id="cache"
-                  checked={config.cache}
-                  onChange={(e) => setConfig({ ...config, cache: e.target.checked })}
-                  className="checkbox"
-                />
-                <label htmlFor="cache" style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>缓存图像</label>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>早停耐心</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.patience === 0 ? '' : config.patience}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, patience: 0 });
-                    } else {
-                      const num = parseInt(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, patience: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.patience === 0) setConfig({ ...config, patience: 50 });
-                  }}
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mosaic关闭轮次</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={config.close_mosaic === 0 ? '' : config.close_mosaic}
-                  onChange={(e) => {
-                    if (e.target.value === '') {
-                      setConfig({ ...config, close_mosaic: 0 });
-                    } else {
-                      const num = parseInt(e.target.value);
-                      if (!isNaN(num)) setConfig({ ...config, close_mosaic: num });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (config.close_mosaic === 0) setConfig({ ...config, close_mosaic: 10 });
-                  }}
-                  style={{ marginTop: 4 }}
-                />
-              </div>
-            </div>
-          </div>
+          {/* Advanced Configuration */}
+          <AdvancedConfig
+            config={config}
+            showAdvanced={showAdvanced}
+            onToggleAdvanced={() => setShowAdvanced(!showAdvanced)}
+            onConfigChange={setConfig}
+          />
 
           {/* Download Modal */}
           <DownloadModal
@@ -971,7 +376,8 @@ export default function TrainingPage() {
             onClose={handleCloseDownloadModal}
             onRetry={handleRetryDownload}
           />
-        </div> </div>
+        </div>
+      </div>
     </div>
   );
 }
