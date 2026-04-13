@@ -42,7 +42,7 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
         .modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.6);
+          background: var(--overlay-modal);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -55,7 +55,7 @@ export function Modal({ isOpen, onClose, title, children, footer }: ModalProps) 
           border-radius: 12px;
           min-width: 360px;
           max-width: 480px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+          box-shadow: var(--shadow-lg);
           animation: modalSlideIn 0.15s ease-out;
         }
         .modal-header {
@@ -375,7 +375,7 @@ export function DownloadModal({
         .download-modal-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(0, 0, 0, 0.75);
+          background: var(--overlay-download);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -388,7 +388,7 @@ export function DownloadModal({
           border-radius: 16px;
           width: 420px;
           max-width: 90vw;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+          box-shadow: var(--shadow-xl);
           animation: modalSlideIn 0.2s ease-out;
           overflow: hidden;
         }

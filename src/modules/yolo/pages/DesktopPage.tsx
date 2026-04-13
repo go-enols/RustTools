@@ -182,7 +182,7 @@ export default function DesktopPage() {
         });
 
         // Draw info overlay
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillStyle = 'var(--overlay-medium)';
         ctx.fillRect(10, 10, 220, 70);
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '14px Arial';
@@ -317,7 +317,7 @@ export default function DesktopPage() {
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: 'rgba(0,0,0,0.5)',
+                  background: 'var(--overlay-light)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -334,7 +334,7 @@ export default function DesktopPage() {
                   position: 'absolute',
                   top: 8,
                   right: 8,
-                  background: 'rgba(0,0,0,0.7)',
+                  background: 'var(--overlay-medium)',
                   borderRadius: 6,
                   padding: '4px 8px',
                   fontSize: 12,

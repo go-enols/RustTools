@@ -59,7 +59,7 @@
   background: linear-gradient(135deg, rgba(234, 67, 53, 0.15) 0%, rgba(234, 67, 53, 0.08) 100%);
   border: 1px solid rgba(234, 67, 53, 0.4);
   border-radius: var(--radius-lg);
-  color: #ea4335;
+  color: var(--status-error-text);
   font-size: 13px;
   font-weight: 500;
   z-index: 100;
@@ -71,7 +71,7 @@
   background: rgba(234, 67, 53, 0.2);
   border-radius: 4px;
   font-size: 12px;
-  color: #ffcdd2;
+  color: var(--status-error-text);
 }
 
 /* Module Grid - 居中展示 */

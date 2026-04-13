@@ -857,7 +857,7 @@ export default function AnnotationPage() {
             top: magnifierScreenPos.y - 70,
             width: 120,
             height: 120,
-            background: '#333',
+            background: 'var(--bg-overlay)',
             zIndex: 9999,
             overflow: 'hidden',
           }}
@@ -908,7 +908,7 @@ export default function AnnotationPage() {
             background: 'rgba(255,255,255,0.5)',
             pointerEvents: 'none',
           }} />
-          <div style={{ position: 'absolute', top: 0, left: 0, background: 'rgba(0,0,0,0.7)', color: 'white', fontSize: 10, padding: 2 }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, background: 'var(--overlay-medium)', color: 'white', fontSize: 10, padding: 2 }}>
             {Math.round(magnifierPos.x)},{Math.round(magnifierPos.y)} 8x
           </div>
         </div>

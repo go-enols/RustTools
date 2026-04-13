@@ -641,7 +641,7 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
                       </div>
 
                       <div style={{ marginBottom: 12 }}>
-                        <strong style={{ fontSize: 12, color: '#52c41a' }}>2. 安装 PyTorch（CPU版本 - 推荐）</strong>
+                        <strong style={{ fontSize: 12, color: 'var(--status-success-text)' }}>2. 安装 PyTorch（CPU版本 - 推荐）</strong>
                         <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '4px 0 8px 0' }}>
                           如遇 CUDA 兼容问题，推荐安装此版本
                         </p>
@@ -733,7 +733,7 @@ export default function PythonEnvCheck({ onClose }: PythonEnvCheckProps) {
                   padding: 16,
                   marginBottom: 12
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#52c41a', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--status-success-text)', marginBottom: 8 }}>
                     方案一：使用 CPU 版本训练
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>

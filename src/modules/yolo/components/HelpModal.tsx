@@ -136,7 +136,7 @@ export default function HelpModal({ type, onClose }: HelpModalProps) {
                                 background: 'var(--bg-surface)',
                                 border: '1px solid var(--border-default)',
                                 borderRadius: 'var(--radius-sm)',
-                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                                boxShadow: 'var(--shadow-kbd)',
                               }}
                             >
                               {key}

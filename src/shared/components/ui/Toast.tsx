@@ -68,7 +68,7 @@ export default function Toast({ id, message, type, duration, onClose }: ToastPro
         padding: '12px 40px 12px 12px',
         background: style.bg,
         borderRadius: 8,
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+        boxShadow: 'var(--shadow-toast)',
         color: 'var(--text-primary)',
         fontSize: 14,
         lineHeight: 1.4,

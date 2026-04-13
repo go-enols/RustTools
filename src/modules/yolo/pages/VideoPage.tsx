@@ -406,14 +406,14 @@ export default function VideoPage() {
 
             {/* Loading overlay */}
             {isLoading && (
-              <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ position: 'absolute', inset: 0, background: 'var(--overlay-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Loader2 size={32} className="spin" style={{ color: 'white' }} />
               </div>
             )}
 
             {/* Inference progress overlay */}
             {isInferring && (
-              <div style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.7)', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: 'white' }}>
+              <div style={{ position: 'absolute', top: 8, right: 8, background: 'var(--overlay-medium)', borderRadius: 6, padding: '4px 8px', fontSize: 12, color: 'white' }}>
                 🔍 推理中: Frame {currentInferenceFrame}
               </div>
             )}
