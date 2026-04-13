@@ -175,6 +175,7 @@ export async function getInstallInstructions(): Promise<InstallInstructions> {
     return {
       pip_install: ['python -m pip install --upgrade pip'],
       torch_install: ['pip install torch', 'pip install torch -i https://pypi.tuna.tsinghua.edu.cn/simple'],
+      torch_cpu_install: ['pip install torch --index-url https://download.pytorch.org/whl/cpu', 'pip install torch -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://download.pytorch.org/whl/cpu'],
       ultralytics_install: ['pip install ultralytics', 'pip install ultralytics -i https://pypi.tuna.tsinghua.edu.cn/simple'],
       manual_download: ['https://pytorch.org/get-started/locally/', 'https://docs.ultralytics.com/'],
     };

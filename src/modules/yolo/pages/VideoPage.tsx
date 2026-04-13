@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Video,
   FolderOpen,
@@ -24,7 +24,6 @@ import {
   startRustVideoInference,
   stopVideoInference,
   stopRustVideoInference,
-  captureScreenshot,
   extractFrames,
 } from '../../../core/api/video';
 import type { VideoInferenceConfig, AnnotationBox } from '../../../core/api/types';
@@ -347,10 +346,6 @@ export default function VideoPage() {
   };
 
   // Get current frame index
-  const getCurrentFrameIndex = () => {
-    if (!videoMeta || !videoMeta.fps) return 0;
-    return Math.floor(currentTime * videoMeta.fps);
-  };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -503,7 +498,7 @@ export default function VideoPage() {
                 <option value="">选择训练好的模型...</option>
                 {trainedModels.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.projectName} - {m.name}
+                    {m.projectName} - {m.modelPath.split('/').pop()}
                   </option>
                 ))}
               </select>

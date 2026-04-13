@@ -5,7 +5,6 @@ import {
   getCachedPythonEnv,
   getInstallInstructions,
   installPythonDeps,
-  clearPythonEnvCache,
   type PythonEnvInfo,
   type InstallInstructions,
 } from '../../../core/api/training';

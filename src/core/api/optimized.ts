@@ -8,7 +8,7 @@
  * - Pipeline architecture for reduced latency
  */
 import { invoke } from '@tauri-apps/api/core';
-import type { ApiResponse, AnnotationBox } from './types';
+import type { ApiResponse, VideoInferenceConfig } from './types';
 
 /// Monitor information
 export interface MonitorInfo {

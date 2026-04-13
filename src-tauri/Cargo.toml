@@ -55,7 +55,7 @@ burn-ndarray = "0.5"  # ndarray CPU 后端
 # 注意：tch 需要 libtorch（会自动下载 ~200MB）
 # 在 Windows 上需要 CUDA 11.8 或 12.1
 # 设置环境变量 LIBTORCH=/path/to/libtorch 或让 tch 自动下载
-tch = "0.5"
+# tch = "0.5"  # 暂时禁用：libtorch 头部与 GCC 13 不兼容
 
 # Tract ONNX Runtime (pure Rust) - 备用 CPU 推理
 tract-onnx = "0.22.0"

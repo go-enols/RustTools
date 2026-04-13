@@ -109,51 +109,79 @@ shared/
 core/
 ├── commands/                     # Tauri 命令层
 │   ├── mod.rs                    # 命令模块导出
-│   ├── file_commands.rs          # 文件操作命令
-│   └── system_commands.rs        # 系统命令
-├── models/                       # 数据模型
-│   ├── mod.rs                    # 模型导出
-│   ├── error.rs                  # 统一错误类型
-│   └── response.rs               # API 响应格式
-└── services/                     # 公共服务
-    ├── mod.rs                    # 服务导出
-    └── logger.rs                 # 日志服务
+│   ├── file.rs                   # 文件操作命令 (read/write/delete/list等)
+│   ├── project.rs                # 项目最近列表管理
+│   ├── settings.rs               # 设置加载/保存
+│   └── watcher.rs                # 文件监视命令
+└── models/                       # 数据模型
+    └── mod.rs                    # 模型导出
 ```
 
 **核心层职责**:
 
 - 定义统一的错误处理和响应格式
 - 提供基础的文件系统操作
-- 实现日志记录服务
+- 实现设置持久化
 - 处理 Tauri 命令的基础设施
 
 #### 模块系统 (modules/) - 【可扩展，支持热插拔】
 
 ```
 modules/
-└── yolo/                         # YOLO 检测模块
+└── yolo/                         # YOLO 检测/训练模块
     ├── mod.rs                    # 模块入口
     ├── commands/                 # 模块命令
-    │   ├── mod.rs                # 命令导出
-    │   ├── project.rs            # 项目管理命令 (已实现)
-    │   ├── train.rs              # 训练命令 (待实现)
-    │   ├── detect.rs             # 推理命令 (待实现)
-    │   └── export.rs             # 导出命令 (待实现)
-    ├── services/                 # 模块服务
+    │   ├── mod.rs                # 项目管理 (create/open/update_classes等)
+    │   ├── train.rs              # 训练命令 (start/stop/pause/resume等)
+    │   ├── video.rs              # 视频推理命令 (load/inference/extract等)
+    │   ├── desktop.rs            # 桌面捕获命令 (capture/start/stop等)
+    │   ├── device.rs             # 设备管理命令 (list/stats/set_default)
+    │   ├── env.rs                # 环境检测 (Python/Rust/依赖安装)
+    │   └── model_conversion.rs   # 模型转换 (format检测/优化/简化)
+    ├── services/                 # 模块服务 (18个)
     │   ├── mod.rs                # 服务导出
-    │   ├── trainer.rs            # 训练服务 (待实现)
-    │   └── detector.rs           # 检测服务 (待实现)
-    └── models/                   # 模块数据模型
+    │   ├── trainer.rs            # Python训练服务封装
+    │   ├── burn_trainer.rs       # 纯Rust Burn训练器 ⭐
+    │   ├── yolo_dataset.rs       # YOLO数据集加载器 ⭐
+    │   ├── yolo_loss.rs          # YOLO损失函数 (CIoU/Focal/DFL) ⭐
+    │   ├── inference_engine.rs   # ONNX推理引擎 (tract-onnx)
+    │   ├── yolo_inference_core.rs # 简化版推理核心
+    │   ├── video_inference.rs    # 视频推理服务
+    │   ├── desktop_capture.rs    # 桌面捕获服务 (xcap)
+    │   ├── async_capture.rs       # 异步捕获优化
+    │   ├── model_converter.rs    # 模型格式转换
+    │   ├── model_optimizer.rs    # ONNX模型优化
+    │   ├── device.rs             # 设备检测服务
+    │   ├── video.rs              # 视频处理服务
+    │   ├── env.rs                # 环境检测服务
+    │   ├── desktop_performance_test.rs # 性能测试
+    │   └── scrap_burn_final.rs   # 修复线程安全的最终版本
+    └── models/
         ├── mod.rs                # 模型导出
-        └── config.rs             # YOLO 配置模型 (待实现)
+        └── training.rs           # 训练数据结构
 ```
+
+**已实现命令统计** (50+ commands):
+
+| 类别 | 命令数 | 示例 |
+|------|--------|------|
+| 项目管理 | 6 | project_create, project_open, update_classes |
+| 标注功能 | 4 | load_annotation, save_annotation, import_dataset |
+| 训练功能 | 8 | training_start/stop/pause/resume, model_list/delete |
+| 环境检测 | 7 | check_python_env, check_rust_env, install_python_deps |
+| 视频推理 | 8 | video_load, rust_video_inference_start/stop |
+| 桌面捕获 | 8 | desktop_capture_start/stop, get_monitors |
+| 设备管理 | 3 | device_list, device_stats, device_set_default |
+| 模型转换 | 8 | detect_format, optimize_onnx, simplify_onnx |
+| 文件操作 | 9 | read/write/delete file, list_directory, copy_file |
+| 设置 | 2 | settings_load, settings_save |
+| 文件监视 | 2 | start_watch, stop_watch |
 
 **模块命令设计**:
 
 - 每个命令使用 `#[tauri::command]` 宏标记
 - 返回 `Result<T, String>` 统一错误处理
-- 命令命名: `{module}_{action}` (如 `yolo_project_create`)
-- **当前状态**: 仅实现了项目管理相关命令，其他功能命令待开发
+- 命令命名: `{module}_{action}` (如 `project_create`)
 
 #### 共享工具 (shared/) - 【跨模块复用】
 

@@ -45,7 +45,7 @@ export default function DesktopPage() {
   const [monitor, setMonitor] = useState(1);
 
   // Inference state
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [inferenceError, setInferenceError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -545,7 +545,7 @@ export default function DesktopPage() {
                 <option value="">选择训练好的模型...</option>
                 {trainedModels.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.projectName} - {m.name}
+                    {m.projectName} - {m.modelPath.split('/').pop()}
                   </option>
                 ))}
               </select>

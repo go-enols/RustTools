@@ -16,6 +16,7 @@ const pageLabels: Record<PageType, string> = {
   device: '设备管理',
   tools: '工具',
   settings: '设置',
+  desktop: '桌面检测',
 };
 
 export default function StatusBar({ currentProject, currentPage = 'hub' }: StatusBarProps) {
