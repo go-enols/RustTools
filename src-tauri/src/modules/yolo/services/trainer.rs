@@ -197,11 +197,10 @@ impl TrainerService {
     
     /// 获取所有可用的预训练模型列表
     ///
-    /// 使用 GitHub Raw URL（raw.githubusercontent.com）直接下载，不走 CDN 重定向，
-    /// 代理（HTTP_PROXY/https_proxy）自动生效。
+    /// 使用 ModelScope 国内镜像下载模型。
     /// 模型文件后缀统一为 .pt（与前端选型一致）。
     pub fn get_available_models() -> Vec<(&'static str, &'static str, String)> {
-        let base = "https://raw.githubusercontent.com/ultralytics/assets/main/releases/download/v8.4.0";
+        let base = "https://modelscope.cn/ultralytics/assets/releases/download/v8.4.0";
         vec![
             // YOLO11 检测模型
             ("yolo11n",  "检测", format!("{}/yolo11n.pt",  base)),
@@ -297,11 +296,10 @@ impl TrainerService {
             }
         }
         
-        progress_callback(format!("正在从 GitHub 下载..."));
-        
-        // 下载模型
+        progress_callback(format!("正在从 ModelScope 镜像下载..."));
+
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))  // 5分钟超时
+            .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| format!("创建HTTP客户端失败: {}", e))?;
         
