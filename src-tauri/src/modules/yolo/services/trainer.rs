@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
 /// Proxy configuration for downloading models
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ProxyConfig {
     proxy_url: String,
 }
