@@ -479,24 +479,27 @@ impl TrainerService {
                     Ok(model_path) => {
                         handle.status.running = false;
                         handle.model_path = Some(model_path.clone());
-                        
+
                         // 保存训练完成的模型信息
                         let model_info = TrainedModelInfo {
                             id: training_id_clone.clone(),
-                            project_name: project_name,
-                            project_path: project_path_clone,
-                            yolo_version: base_model_clone,
+                            project_name: project_name.clone(),
+                            project_path: project_path_clone.clone(),
+                            yolo_version: base_model_clone.clone(),
                             model_size: "N/A".to_string(),
                             best_epoch: epochs_clone,
                             total_epochs: epochs_clone,
                             map50: 0.0,
                             map50_95: 0.0,
-                            model_path: model_path,
+                            model_path: model_path.clone(),
                             created_at: chrono::Utc::now().to_rfc3339(),
                         };
-                        
-                        // 注意：这里需要通过某种方式保存model_info
-                        // 实际实现中应该调用save_trained_model
+
+                        if let Err(e) = self.save_trained_model(model_info).await {
+                            eprintln!("[Trainer] Failed to save trained model: {}", e);
+                        }
+                        // burn_trainer 会在 train() 完成时自动发送 TrainingEvent::Complete
+                        // 命令层会收到并转发 "training-complete" 给前端
                     }
                     Err(e) => {
                         handle.status.running = false;
