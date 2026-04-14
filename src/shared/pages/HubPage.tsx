@@ -9,7 +9,7 @@ import { Lock, Sparkles, ArrowRight } from 'lucide-react';
 export default function HubPage() {
   const modules = moduleRegistry.getAllModules();
   const { navigateToModule } = useRouterStore();
-  const { recentProjects, openProject, selectProjectPath, openProjectFromPath } = useWorkspaceStore();
+  const { recentProjects, removeRecentProject, selectProjectPath, openProjectFromPath } = useWorkspaceStore();
   const { error: showError } = useToast();
   const [showYoloGuide, setShowYoloGuide] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -36,10 +36,16 @@ export default function HubPage() {
     }
   };
 
-  const handleSelectRecentProject = (project: Project) => {
-    openProject(project);
-    setShowYoloGuide(false);
-    navigateToModule('yolo');
+  const handleSelectRecentProject = async (project: Project) => {
+    const success = await openProjectFromPath(project.path);
+    if (success) {
+      setShowYoloGuide(false);
+      navigateToModule('yolo');
+    } else {
+      // Project path no longer valid — remove from recent list and notify user
+      removeRecentProject(project.id);
+      showError(`项目 "${project.name}" 无法打开，路径已失效或不存在`);
+    }
   };
 
   const handleNewProject = () => {

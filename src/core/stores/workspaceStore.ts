@@ -49,6 +49,7 @@ interface WorkspaceState {
   loadRecentProjects: () => Promise<void>;
   loadCurrentProject: () => void;
   clearRecentProjects: () => void;
+  removeRecentProject: (projectId: string) => void;
   saveCurrentProject: () => Promise<void>;
   selectProjectPath: () => Promise<string | null>;
   setError: (error: string | null) => void;
@@ -64,10 +65,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   createProject: async (name, path, options) => {
     set({ isLoading: true, error: null });
     try {
+      // Combine parent path with project name to get actual project directory
+      const projectPath = `${path}/${name}`;
       // Call backend API
       const config: ProjectConfig = {
         name,
-        path,
+        path: projectPath,
         yolo_version: options.yolo_version as 'yolo5' | 'yolo8' | 'yolo11',
         classes: options.classes,
         train_split: options.train_split,
@@ -111,7 +114,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const updatedRecent = [newProject, ...get().recentProjects.slice(0, 9)];
       localStorage.setItem('recentProjects', JSON.stringify(updatedRecent));
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : '创建项目失败', isLoading: false });
+      const message = error instanceof Error ? error.message : '创建项目失败';
+      set({ error: message, isLoading: false });
+      throw error;
     }
   },
 
@@ -191,6 +196,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   clearRecentProjects: () => {
     localStorage.removeItem('recentProjects');
     set({ recentProjects: [] });
+  },
+
+  removeRecentProject: (projectId: string) => {
+    const updated = get().recentProjects.filter((p) => p.id !== projectId);
+    set({ recentProjects: updated });
+    localStorage.setItem('recentProjects', JSON.stringify(updated));
   },
 
   loadCurrentProject: () => {

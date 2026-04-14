@@ -1,11 +1,12 @@
 use crate::modules::yolo::models::training::{TrainingMetrics, TrainingRequest, TrainingStatus};
+use crate::modules::yolo::services::python_env::resolved_python;
 use rand::Rng;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
 use tokio_stream::StreamExt;
 
 pub struct TrainerService {
@@ -18,6 +19,7 @@ struct TrainingHandle {
     child: Child,
     stdin: Option<tokio::io::BufWriter<tokio::process::ChildStdin>>,
     model_path: Option<String>,
+    stderr_rx: tokio::sync::oneshot::Receiver<String>,
 }
 
 impl TrainerService {
@@ -34,7 +36,7 @@ impl TrainerService {
     }
 
     /// Find and start the Python sidecar process
-    async fn start_sidecar(&self) -> Result<Child, String> {
+    async fn start_sidecar(&self) -> Result<(Child, tokio::sync::oneshot::Receiver<String>), String> {
         let script_paths = [
             "scripts/yolo_server.py",
             "src-tauri/scripts/yolo_server.py",
@@ -45,18 +47,41 @@ impl TrainerService {
             .find(|p| std::path::Path::new(p).exists())
             .ok_or_else(|| "Python sidecar script not found".to_string())?;
 
-        let python_cmd = if cfg!(windows) { "python" } else { "python3" };
+        let python_cmd = resolved_python().ok_or_else(|| "Python not found. Please install Python 3.8+.".to_string())?;
 
-        let child = Command::new(python_cmd)
+        // Capture stderr so Python-side errors (ImportError, CUDA init failure)
+        // are relayed to the frontend instead of lost to the terminal.
+        // We use a oneshot channel to collect stderr output from a blocking thread.
+        let mut child = Command::new(&python_cmd)
             .arg(script_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())  // Print Python stderr to console
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("Failed to start Python sidecar: {}", e))?;
 
-        Ok(child)
+        // Create oneshot channel to receive stderr output
+        let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+
+        // Take stderr and read it in a blocking thread using a nested tokio runtime
+        // because tokio::process::ChildStderr only implements tokio::io::AsyncRead, not std::io::Read
+        let stderr = child.stderr.take().expect("stderr was piped");
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create runtime for stderr reading");
+            rt.block_on(async {
+                use tokio::io::AsyncReadExt;
+                let mut reader = tokio::io::BufReader::new(stderr);
+                let mut buf = String::new();
+                reader.read_to_string(&mut buf).await.ok();
+                let _ = tx.send(buf);
+            });
+        });
+
+        Ok((child, rx))
     }
 
     pub async fn start_training(
@@ -79,7 +104,7 @@ impl TrainerService {
     ) -> Result<String, String> {
         eprintln!("[Trainer] Starting training via pipe...");
 
-        let mut child = self.start_sidecar().await?;
+        let (mut child, stderr_rx) = self.start_sidecar().await?;
 
         let stdin = child
             .stdin
@@ -138,6 +163,7 @@ impl TrainerService {
             child,
             stdin: Some(stdin_writer),  // Keep stdin alive
             model_path: None,
+            stderr_rx,
         };
 
         self.processes
@@ -294,7 +320,15 @@ impl TrainerService {
             // Clean up
             if let Some(h) = processes.write().await.get_mut(&process_id) {
                 h.status.running = false;
-                let _ = h.child.wait().await;
+                // Try to get stderr output from the oneshot receiver
+                let stderr_output = match h.stderr_rx.try_recv() {
+                    Ok(output) => output,
+                    Err(_) => String::new(), // already closed or dropped
+                };
+                let exit = h.child.wait().await.map(|e| e.code()).ok().flatten();
+                if !stderr_output.is_empty() && (exit != Some(0) || h.status.error.is_some()) {
+                    h.status.error = Some(stderr_output);
+                }
             }
         });
 

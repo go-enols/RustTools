@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FolderOpen, X } from 'lucide-react';
 import { useWorkspaceStore } from '../../../core/stores/workspaceStore';
+import { useToast } from '../../../shared/hooks/useToast';
 
 interface NewProjectModalProps {
   onClose: () => void;
@@ -9,6 +10,7 @@ interface NewProjectModalProps {
 
 export default function NewProjectModal({ onClose, onCreated }: NewProjectModalProps) {
   const { createProject, selectProjectPath } = useWorkspaceStore();
+  const { error: showError } = useToast();
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const [yoloVersion, setYoloVersion] = useState('yolo11');
@@ -27,9 +29,21 @@ export default function NewProjectModal({ onClose, onCreated }: NewProjectModalP
   const handleCreate = async () => {
     if (!name.trim() || !path) return;
 
+    // Basic validation
+    const invalidChars = /[/\\:*?"<>|]/;
+    if (invalidChars.test(name)) {
+      showError('项目名称不能包含特殊字符: / \\ : * ? " < > |');
+      return;
+    }
+
+    const classList = classes.split(',').map((c) => c.trim()).filter(Boolean);
+    if (classList.length === 0) {
+      showError('请至少输入一个检测类别');
+      return;
+    }
+
     setIsCreating(true);
     try {
-      const classList = classes.split(',').map((c) => c.trim()).filter(Boolean);
       await createProject(name.trim(), path, {
         classes: classList,
         train_split: trainRatio / 100,
@@ -40,6 +54,8 @@ export default function NewProjectModal({ onClose, onCreated }: NewProjectModalP
       });
       onCreated?.();
       onClose();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : '创建项目失败');
     } finally {
       setIsCreating(false);
     }

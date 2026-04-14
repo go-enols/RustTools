@@ -74,7 +74,7 @@ pub async fn project_create(config: ProjectConfig) -> Result<ProjectResponse, St
         }
     }
 
-    // Save project config to YAML file
+    // Save project config to YAML file (single source of truth)
     let config_path = project_path.join("project.yaml");
     let yaml_content = format!(
         r#"name: {}

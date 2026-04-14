@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useSettingsStore, DeviceInfo } from '../../../core/stores/settingsStore';
+import { useToast } from '../../../shared/hooks/useToast';
 
 interface PythonEnvStatus {
   pythonAvailable: boolean;
@@ -28,6 +29,7 @@ function PythonEnvCard() {
   const [envStatus, setEnvStatus] = useState<PythonEnvStatus | null>(null);
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     checkEnv();
@@ -51,6 +53,7 @@ function PythonEnvCard() {
       setEnvStatus(status);
     } catch (e) {
       console.error('Failed to check Python env:', e);
+      toast.error('检查 Python 环境失败');
     } finally {
       setIsLoading(false);
     }
@@ -62,6 +65,7 @@ function PythonEnvCard() {
       await invoke('python_env_install');
     } catch (e) {
       console.error('Failed to install env:', e);
+      toast.error('安装 Python 环境失败');
     }
   };
 

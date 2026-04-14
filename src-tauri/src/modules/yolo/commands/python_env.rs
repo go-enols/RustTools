@@ -33,7 +33,13 @@ impl<T> CommandResponse<T> {
 /// Check the current status of the Python environment
 #[tauri::command]
 pub fn python_env_status() -> CommandResponse<PythonEnvStatus> {
-    CommandResponse::ok(get_env_status())
+    let status = get_env_status();
+    if !status.python_available {
+        return CommandResponse::err(
+            status.detection_error.clone().unwrap_or_else(|| "Python not available".to_string()),
+        );
+    }
+    CommandResponse::ok(status)
 }
 
 /// Check what Python packages are available (alias for status)

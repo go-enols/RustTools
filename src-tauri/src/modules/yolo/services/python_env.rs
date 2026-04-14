@@ -34,6 +34,7 @@ pub struct PythonEnvStatus {
     pub is_conda: bool,
     pub is_mamba: bool,
     pub conda_env_name: Option<String>,
+    pub detection_error: Option<String>,
 }
 
 /// Global install lock to prevent concurrent installations
@@ -46,21 +47,83 @@ pub fn get_install_lock() -> Arc<Mutex<bool>> {
 }
 
 /// List of python executables to try (in order of preference)
+/// Tries the most specific paths first, then falls back to bare commands which
+/// use PATH. On Windows also tries the `py` launcher.
 const PYTHON_CANDIDATES: &[&str] = &[
+    // RustTools YOLO venv (most preferred)
+    "/home/enols/.rusttools/yolo-env/bin/python",
+    // Bare commands first — rely on PATH
     "python3",
     "python",
+    "py",
+    // Unix-specific paths
     "/usr/bin/python3",
+    "/usr/bin/python",
     "/usr/local/bin/python3",
+    "/usr/local/bin/python",
+    // Windows-specific paths (ProgramFiles / AppData)
+    "C:\\Python312\\python.exe",
+    "C:\\Python311\\python.exe",
+    "C:\\Python310\\python.exe",
+    "C:\\Program Files\\Python312\\python.exe",
+    "C:\\Program Files\\Python311\\python.exe",
+    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
+    // Windows py launcher (latest Python in PATH)
+    "C:\\Windows\\py.exe",
 ];
 
-/// Resolve the actual python path by trying multiple executables directly
+/// Resolve the actual python path by trying multiple executables directly.
+/// Returns the first python that responds to `--version`, or None.
 pub fn resolve_python_path() -> Option<String> {
-    for &python in PYTHON_CANDIDATES {
+    // First, check HOME-based dynamic paths before iterating static candidates
+    if let Ok(home) = std::env::var("HOME") {
+        let home_yolo_python = format!("{}/.rusttools/yolo-env/bin/python", home);
+        if Command::new(&home_yolo_python).arg("--version").output().ok()?.status.success() {
+            return Some(home_yolo_python);
+        }
+        let home_hermes_python = format!("{}/.hermes/hermes-agent/venv/bin/python", home);
+        if Command::new(&home_hermes_python).arg("--version").output().ok()?.status.success() {
+            return Some(home_hermes_python);
+        }
+    }
+
+    // Expand ${USERNAME} env var on Windows
+    let mut expanded: Vec<&'static str> = Vec::with_capacity(PYTHON_CANDIDATES.len());
+    for &candidate in PYTHON_CANDIDATES {
+        if candidate.contains("${USERNAME}") {
+            if let Ok(username) = std::env::var("USERNAME") {
+                let expanded_path = candidate.replace("${USERNAME}", &username);
+                expanded.push(Box::leak(expanded_path.into_boxed_str()));
+            }
+        } else {
+            expanded.push(candidate);
+        }
+    }
+
+    for python in &expanded {
         if Command::new(python).arg("--version").output().ok()?.status.success() {
-            return Some(python.to_string());
+            return Some((*python).to_string());
         }
     }
     None
+}
+
+/// Cache for the resolved python path to avoid repeated subprocess spawns
+thread_local! {
+    static RESOLVED_PYTHON: std::cell::OnceCell<String> = std::cell::OnceCell::new();
+}
+
+/// Get the cached resolved python path, or resolve and cache it
+pub fn resolved_python() -> Option<String> {
+    RESOLVED_PYTHON.with(|cell| cell.get().cloned()).or_else(|| {
+        let path = resolve_python_path();
+        if let Some(ref p) = path {
+            RESOLVED_PYTHON.with(|cell| { let _ = cell.set(p.clone()); });
+        }
+        path
+    })
 }
 
 /// Check if conda/mamba environment is active and return env info
@@ -84,49 +147,43 @@ pub fn check_conda() -> (bool, bool, Option<String>) {
 
 /// Check if Python is available and get its version
 pub fn check_python() -> Option<String> {
-    for &python in PYTHON_CANDIDATES {
-        let output = Command::new(python)
-            .arg("--version")
-            .output()
-            .ok()
-            .filter(|o| o.status.success())?;
-        
-        let version_str = String::from_utf8_lossy(&output.stdout).to_string();
-        let version = version_str.trim().replace("Python ", "");
-        return Some(version);
-    }
-    None
+    let python = resolved_python()?;
+    let output = Command::new(&python)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let version_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let version = version_str.trim().replace("Python ", "");
+    Some(version)
 }
 
 /// Check if PyTorch is available and get its version
 pub fn check_torch() -> Option<String> {
-    for &python in PYTHON_CANDIDATES {
-        let output = Command::new(python)
-            .args(["-c", "import torch; print(torch.__version__)"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())?;
-        
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return Some(version);
-    }
-    None
+    let python = resolved_python()?;
+    let output = Command::new(&python)
+        .args(["-c", "import torch; print(torch.__version__)"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Some(version)
 }
 
 /// Check if CUDA is available via PyTorch
 pub fn check_cuda() -> bool {
-    for &python in PYTHON_CANDIDATES {
-        let output = Command::new(python)
-            .args(["-c", "import torch; print(torch.cuda.is_available())"])
-            .output()
-            .ok()
-            .filter(|o| o.status.success());
-        
-        if let Some(o) = output {
-            return String::from_utf8_lossy(&o.stdout).trim().contains("True");
-        }
-    }
-    false
+    let python = match resolved_python() {
+        Some(p) => p,
+        None => return false,
+    };
+    let output = Command::new(&python)
+        .args(["-c", "import torch; print(torch.cuda.is_available())"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success());
+    output.map_or(false, |o| {
+        String::from_utf8_lossy(&o.stdout).trim().contains("True")
+    })
 }
 
 /// Get the full status of the Python environment
@@ -135,6 +192,12 @@ pub fn get_env_status() -> PythonEnvStatus {
     let torch_version = check_torch();
     let installing = *get_install_lock().lock().unwrap();
     let (is_conda, is_mamba, conda_env_name) = check_conda();
+
+    let detection_error = if python_version.is_none() {
+        Some("Python not found or not working. Please install Python 3.8+.".to_string())
+    } else {
+        None
+    };
 
     PythonEnvStatus {
         python_available: python_version.is_some(),
@@ -146,6 +209,7 @@ pub fn get_env_status() -> PythonEnvStatus {
         is_conda,
         is_mamba,
         conda_env_name,
+        detection_error,
     }
 }
 
@@ -188,13 +252,14 @@ pub fn install_python_deps(
             });
         }
 
-        // Determine pip install command based on environment
-        let python_path = resolve_python_path().unwrap_or_else(|| "python3".to_string());
+        // Determine pip install command based on resolved python
+        let python_path = resolved_python().unwrap_or_else(|| "python3".to_string());
         let pip_cmd = if check_conda().0 || check_conda().1 {
             // In conda/mamba env, use python -m pip for proper environment targeting
             vec![python_path.as_str(), "-m", "pip"]
         } else {
-            vec!["python3", "-m", "pip"]
+            // Use the resolved python executable for pip
+            vec![python_path.as_str(), "-m", "pip"]
         };
 
         // Install torch with CUDA 12.4 support
