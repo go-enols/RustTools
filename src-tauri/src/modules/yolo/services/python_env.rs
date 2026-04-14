@@ -45,22 +45,22 @@ pub fn get_install_lock() -> Arc<Mutex<bool>> {
         .clone()
 }
 
-/// Resolve the actual python path via `which python3`
+/// List of python executables to try (in order of preference)
+const PYTHON_CANDIDATES: &[&str] = &[
+    "python3",
+    "python",
+    "/usr/bin/python3",
+    "/usr/local/bin/python3",
+];
+
+/// Resolve the actual python path by trying multiple executables directly
 pub fn resolve_python_path() -> Option<String> {
-    let output = Command::new("which")
-        .arg("python3")
-        .output()
-        .ok()?;
-    
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !path.is_empty() {
-            return Some(path);
+    for &python in PYTHON_CANDIDATES {
+        if Command::new(python).arg("--version").output().ok()?.status.success() {
+            return Some(python.to_string());
         }
     }
-    
-    // Fallback to plain python3
-    Some("python3".to_string())
+    None
 }
 
 /// Check if conda/mamba environment is active and return env info
@@ -84,61 +84,49 @@ pub fn check_conda() -> (bool, bool, Option<String>) {
 
 /// Check if Python is available and get its version
 pub fn check_python() -> Option<String> {
-    let python_path = resolve_python_path()?;
-    let output = Command::new(&python_path)
-        .arg("--version")
-        .output()
-        .or_else(|_| Command::new("python").arg("--version").output())
-        .ok()?;
-    
-    if output.status.success() {
+    for &python in PYTHON_CANDIDATES {
+        let output = Command::new(python)
+            .arg("--version")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        
         let version_str = String::from_utf8_lossy(&output.stdout).to_string();
         let version = version_str.trim().replace("Python ", "");
-        Some(version)
-    } else {
-        None
+        return Some(version);
     }
+    None
 }
 
 /// Check if PyTorch is available and get its version
 pub fn check_torch() -> Option<String> {
-    let python_path = resolve_python_path()?;
-    let output = Command::new(&python_path)
-        .args(["-c", "import torch; print(torch.__version__)"])
-        .output()
-        .or_else(|_| {
-            Command::new("python")
-                .args(["-c", "import torch; print(torch.__version__)"])
-                .output()
-        })
-        .ok()?;
-    
-    if output.status.success() {
+    for &python in PYTHON_CANDIDATES {
+        let output = Command::new(python)
+            .args(["-c", "import torch; print(torch.__version__)"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
+        
         let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Some(version)
-    } else {
-        None
+        return Some(version);
     }
+    None
 }
 
 /// Check if CUDA is available via PyTorch
 pub fn check_cuda() -> bool {
-    let python_path = resolve_python_path();
-    let python_cmd = python_path.as_deref().unwrap_or("python3");
-    
-    let output = Command::new(python_cmd)
-        .args(["-c", "import torch; print(torch.cuda.is_available())"])
-        .output()
-        .or_else(|_| {
-            Command::new("python")
-                .args(["-c", "import torch; print(torch.cuda.is_available())"])
-                .output()
-        })
-        .ok();
-    
-    output
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().contains("True"))
-        .unwrap_or(false)
+    for &python in PYTHON_CANDIDATES {
+        let output = Command::new(python)
+            .args(["-c", "import torch; print(torch.cuda.is_available())"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success());
+        
+        if let Some(o) = output {
+            return String::from_utf8_lossy(&o.stdout).trim().contains("True");
+        }
+    }
+    false
 }
 
 /// Get the full status of the Python environment
