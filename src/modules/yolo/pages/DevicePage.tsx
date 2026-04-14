@@ -227,6 +227,9 @@ export default function DevicePage() {
 
         {/* Right - Device Details */}
         <div style={{ flex: 1, overflow: 'auto', padding: 'var(--spacing-xl)' }}>
+          {/* Python Environment — always visible, independent of device selection */}
+          <PythonEnvCard />
+
           {selected && (
             <div style={{ maxWidth: 600 }}>
               {selected.type === 'GPU' ? (
@@ -234,7 +237,6 @@ export default function DevicePage() {
               ) : (
                 <CPUDetail device={selected} formatBytes={formatBytes} getMemoryUtilization={getMemoryUtilization} />
               )}
-              <PythonEnvCard />
             </div>
           )}
         </div>
@@ -308,8 +310,6 @@ function GPUDetail({ device, formatBytes, getMemoryUtilization }: GPUDetailProps
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>可用显存</div>
         </div>
       </div>
-
-      <PythonEnvCard />
     </div>
   );
 }
