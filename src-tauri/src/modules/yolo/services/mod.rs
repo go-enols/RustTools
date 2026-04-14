@@ -24,6 +24,7 @@ pub mod env;          // Rust环境检测模块
 // pub mod scrap_capture;  // 暂时禁用 - scrap API 版本不匹配
 // pub mod scrap_burn_yolo;  // 有线程安全问题
 pub mod scrap_burn_final;  // 修复线程安全问题的最终版本
+pub mod python_env;
 
 pub use trainer::TrainerService;
 pub use burn_trainer::TrainingEvent;

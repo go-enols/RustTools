@@ -7,6 +7,7 @@ use modules::yolo::services::{
     VideoService, 
     VideoInferenceService,
     DesktopCaptureService,
+    python_env,
 };
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ pub fn run() {
         .manage(Arc::new(VideoService::new()))
         .manage(Arc::new(VideoInferenceService::new()))
         .manage(Arc::new(DesktopCaptureService::new()))
+        .manage(python_env::get_install_lock())
         .invoke_handler(tauri::generate_handler![
             // Settings commands
             core::commands::settings_load,
@@ -65,6 +67,9 @@ pub fn run() {
             modules::yolo::commands::device::device_list,
             modules::yolo::commands::device::device_stats,
             modules::yolo::commands::device::device_set_default,
+            // Python environment commands
+            modules::yolo::commands::python_env::python_env_status,
+            modules::yolo::commands::python_env::python_env_check,
             // Desktop capture commands
             modules::yolo::commands::desktop::desktop_capture_start,
             modules::yolo::commands::desktop::desktop_capture_stop,

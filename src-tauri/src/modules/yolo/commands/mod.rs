@@ -446,6 +446,7 @@ pub mod video;
 pub mod device;
 pub mod desktop;
 pub mod model_conversion;
+pub mod python_env;
 // pub mod opt_desktop;  // 待修复编译错误
 
 /// Import an existing YOLO dataset and create a project
