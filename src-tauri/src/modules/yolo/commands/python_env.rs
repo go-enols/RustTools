@@ -35,9 +35,7 @@ impl<T> CommandResponse<T> {
 pub fn python_env_status() -> CommandResponse<PythonEnvStatus> {
     let status = get_env_status();
     if !status.python_available {
-        return CommandResponse::err(
-            status.detection_error.clone().unwrap_or_else(|| "Python not available".to_string()),
-        );
+        return CommandResponse::err("Python not available".to_string());
     }
     CommandResponse::ok(status)
 }

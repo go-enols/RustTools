@@ -47,31 +47,29 @@ pub fn get_install_lock() -> Arc<Mutex<bool>> {
 }
 
 /// List of python executables to try (in order of preference)
-/// Tries the most specific paths first, then falls back to bare commands which
-/// use PATH. On Windows also tries the `py` launcher.
+/// Uses name-based detection for cross-machine compatibility.
+/// HOME-based paths (via env var) are tried FIRST in resolve_python_path().
+/// This list is name-based (works on any machine) as fallback.
 const PYTHON_CANDIDATES: &[&str] = &[
-    // RustTools YOLO venv (most preferred)
-    "/home/enols/.rusttools/yolo-env/bin/python",
-    // Bare commands first — rely on PATH
+    // Name-based (work across machines) — try these first
+    "python3.11",
+    "python3.10",
+    "python3.9",
     "python3",
     "python",
-    "py",
-    // Unix-specific paths
+    // Common Unix installation paths
     "/usr/bin/python3",
-    "/usr/bin/python",
     "/usr/local/bin/python3",
-    "/usr/local/bin/python",
-    // Windows-specific paths (ProgramFiles / AppData)
+    "/usr/bin/python3.11",
+    "/usr/local/bin/python3.11",
+    // Windows Python Launcher
+    "py",
+    // Windows-specific paths
     "C:\\Python312\\python.exe",
     "C:\\Python311\\python.exe",
     "C:\\Python310\\python.exe",
     "C:\\Program Files\\Python312\\python.exe",
     "C:\\Program Files\\Python311\\python.exe",
-    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
-    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
-    "C:\\Users\\${USERNAME}\\AppData\\Local\\Programs\\Python\\Python310\\python.exe",
-    // Windows py launcher (latest Python in PATH)
-    "C:\\Windows\\py.exe",
 ];
 
 /// Resolve the actual python path by trying multiple executables directly.
