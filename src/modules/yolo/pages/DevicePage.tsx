@@ -1,5 +1,175 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useSettingsStore, DeviceInfo } from '../../../core/stores/settingsStore';
+
+interface PythonEnvStatus {
+  pythonAvailable: boolean;
+  pythonVersion: string | null;
+  torchAvailable: boolean;
+  torchVersion: string | null;
+  ultralyticsAvailable: boolean;
+  ultralyticsVersion: string | null;
+  cudaAvailable: boolean;
+  ready_for_training: boolean;
+  installing: boolean;
+}
+
+interface InstallProgress {
+  stage: string;
+  message: string;
+  progress: number | null;
+}
+
+function PythonEnvCard() {
+  const [envStatus, setEnvStatus] = useState<PythonEnvStatus | null>(null);
+  const [progress, setProgress] = useState<InstallProgress | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    checkEnv();
+    const unlistenProgress = listen<InstallProgress>('python-env-progress', (event) => {
+      setProgress(event.payload);
+    });
+    const unlistenDone = listen<{ success: boolean; message: string }>('python-env-done', () => {
+      setProgress(null);
+      checkEnv();
+    });
+    return () => {
+      unlistenProgress.then((fn) => fn());
+      unlistenDone.then((fn) => fn());
+    };
+  }, []);
+
+  const checkEnv = async () => {
+    setIsLoading(true);
+    try {
+      const status = await invoke<PythonEnvStatus>('python_env_status');
+      setEnvStatus(status);
+    } catch (e) {
+      console.error('Failed to check Python env:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const installEnv = async () => {
+    setIsLoading(true);
+    try {
+      await invoke('python_env_install');
+    } catch (e) {
+      console.error('Failed to install env:', e);
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginTop: 'var(--spacing-lg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-md)' }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Python 环境</h3>
+        <button
+          onClick={checkEnv}
+          disabled={isLoading}
+          style={{
+            padding: '4px 12px',
+            fontSize: 12,
+            background: 'var(--accent-primary)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: isLoading ? 'not-allowed' : 'pointer',
+            opacity: isLoading ? 0.6 : 1,
+          }}
+        >
+          {isLoading ? '检查中...' : '检查'}
+        </button>
+      </div>
+
+      {/* Badges */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 'var(--spacing-md)' }}>
+        <span style={{
+          padding: '2px 8px',
+          fontSize: 11,
+          borderRadius: 4,
+          background: envStatus?.pythonAvailable ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+          color: envStatus?.pythonAvailable ? '#22c55e' : '#ef4444',
+          border: `1px solid ${envStatus?.pythonAvailable ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+        }}>
+          Python {envStatus?.pythonVersion || 'N/A'}
+        </span>
+        <span style={{
+          padding: '2px 8px',
+          fontSize: 11,
+          borderRadius: 4,
+          background: envStatus?.torchAvailable ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+          color: envStatus?.torchAvailable ? '#22c55e' : '#ef4444',
+          border: `1px solid ${envStatus?.torchAvailable ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+        }}>
+          PyTorch {envStatus?.torchVersion || 'N/A'}
+        </span>
+        <span style={{
+          padding: '2px 8px',
+          fontSize: 11,
+          borderRadius: 4,
+          background: envStatus?.ultralyticsAvailable ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+          color: envStatus?.ultralyticsAvailable ? '#22c55e' : '#ef4444',
+          border: `1px solid ${envStatus?.ultralyticsAvailable ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+        }}>
+          Ultralytics {envStatus?.ultralyticsVersion || 'N/A'}
+        </span>
+        <span style={{
+          padding: '2px 8px',
+          fontSize: 11,
+          borderRadius: 4,
+          background: envStatus?.cudaAvailable ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+          color: envStatus?.cudaAvailable ? '#22c55e' : '#ef4444',
+          border: `1px solid ${envStatus?.cudaAvailable ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+        }}>
+          CUDA {envStatus?.cudaAvailable ? '可用' : '不可用'}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      {progress && (
+        <div style={{ marginTop: 'var(--spacing-md)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+            <span style={{ color: 'var(--text-secondary)' }}>{progress.message}</span>
+            <span style={{ color: 'var(--accent-primary)' }}>
+              {progress.progress !== null ? `${Math.round(progress.progress * 100)}%` : ''}
+            </span>
+          </div>
+          <div style={{ height: 4, background: 'var(--bg-elevated)', borderRadius: 2 }}>
+            <div style={{
+              height: '100%',
+              width: progress.progress !== null ? `${progress.progress * 100}%` : '0%',
+              background: 'var(--accent-primary)',
+              borderRadius: 2,
+              transition: 'width 0.3s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Install button */}
+      {envStatus && !envStatus.ready_for_training && !envStatus.installing && (
+        <button
+          onClick={installEnv}
+          style={{
+            marginTop: 'var(--spacing-md)',
+            padding: '8px 16px',
+            fontSize: 13,
+            background: 'var(--status-success)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 'var(--radius-sm)',
+            cursor: 'pointer',
+          }}
+        >
+          安装环境
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function DevicePage() {
   const { devices, loadDevices } = useSettingsStore();
@@ -64,6 +234,7 @@ export default function DevicePage() {
               ) : (
                 <CPUDetail device={selected} formatBytes={formatBytes} getMemoryUtilization={getMemoryUtilization} />
               )}
+              <PythonEnvCard />
             </div>
           )}
         </div>
@@ -137,6 +308,8 @@ function GPUDetail({ device, formatBytes, getMemoryUtilization }: GPUDetailProps
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>可用显存</div>
         </div>
       </div>
+
+      <PythonEnvCard />
     </div>
   );
 }
