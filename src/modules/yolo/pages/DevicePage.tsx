@@ -13,6 +13,9 @@ interface PythonEnvStatus {
   cudaAvailable: boolean;
   ready_for_training: boolean;
   installing: boolean;
+  is_conda: boolean;
+  is_mamba: boolean;
+  conda_env_name: string | null;
 }
 
 interface InstallProgress {
@@ -94,7 +97,7 @@ function PythonEnvCard() {
           color: envStatus?.pythonAvailable ? '#22c55e' : '#ef4444',
           border: `1px solid ${envStatus?.pythonAvailable ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
         }}>
-          Python {envStatus?.pythonVersion || 'N/A'}
+          Python {envStatus?.pythonVersion || 'N/A'}{(envStatus?.is_conda || envStatus?.is_mamba) && envStatus?.conda_env_name ? ` (${envStatus.is_mamba ? 'mamba' : 'conda'}: ${envStatus.conda_env_name})` : ''}
         </span>
         <span style={{
           padding: '2px 8px',

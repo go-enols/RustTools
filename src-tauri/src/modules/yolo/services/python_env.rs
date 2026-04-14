@@ -30,14 +30,10 @@ pub struct PythonEnvStatus {
     pub torch_available: bool,
     pub torch_version: Option<String>,
     pub cuda_available: bool,
-    pub pip_ok: bool,
-    pub pip_version: Option<String>,
-    pub ultralytics_available: bool,
-    pub ultralytics_version: Option<String>,
-    pub gpu_name: Option<String>,
-    pub gpu_driver_version: Option<String>,
-    pub ready_for_training: bool,
     pub installing: bool,
+    pub is_conda: bool,
+    pub is_mamba: bool,
+    pub conda_env_name: Option<String>,
 }
 
 /// Global install lock to prevent concurrent installations
@@ -49,9 +45,47 @@ pub fn get_install_lock() -> Arc<Mutex<bool>> {
         .clone()
 }
 
+/// Resolve the actual python path via `which python3`
+pub fn resolve_python_path() -> Option<String> {
+    let output = Command::new("which")
+        .arg("python3")
+        .output()
+        .ok()?;
+    
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Some(path);
+        }
+    }
+    
+    // Fallback to plain python3
+    Some("python3".to_string())
+}
+
+/// Check if conda/mamba environment is active and return env info
+pub fn check_conda() -> (bool, bool, Option<String>) {
+    // Check MAMBA_DEFAULT_ENV first (mamba takes precedence)
+    if let Ok(mamba_env) = std::env::var("MAMBA_DEFAULT_ENV") {
+        if !mamba_env.is_empty() {
+            return (false, true, Some(mamba_env));
+        }
+    }
+    
+    // Check CONDA_DEFAULT_ENV
+    if let Ok(conda_env) = std::env::var("CONDA_DEFAULT_ENV") {
+        if !conda_env.is_empty() {
+            return (true, false, Some(conda_env));
+        }
+    }
+    
+    (false, false, None)
+}
+
 /// Check if Python is available and get its version
 pub fn check_python() -> Option<String> {
-    let output = Command::new("python3")
+    let python_path = resolve_python_path()?;
+    let output = Command::new(&python_path)
         .arg("--version")
         .output()
         .or_else(|_| Command::new("python").arg("--version").output())
@@ -68,12 +102,15 @@ pub fn check_python() -> Option<String> {
 
 /// Check if PyTorch is available and get its version
 pub fn check_torch() -> Option<String> {
-    let output = Command::new("python3")
+    let python_path = resolve_python_path()?;
+    let output = Command::new(&python_path)
         .args(["-c", "import torch; print(torch.__version__)"])
         .output()
-        .or_else(|_| Command::new("python")
-            .args(["-c", "import torch; print(torch.__version__)"])
-            .output())
+        .or_else(|_| {
+            Command::new("python")
+                .args(["-c", "import torch; print(torch.__version__)"])
+                .output()
+        })
         .ok()?;
     
     if output.status.success() {
@@ -86,7 +123,10 @@ pub fn check_torch() -> Option<String> {
 
 /// Check if CUDA is available via PyTorch
 pub fn check_cuda() -> bool {
-    let output = Command::new("python3")
+    let python_path = resolve_python_path();
+    let python_cmd = python_path.as_deref().unwrap_or("python3");
+    
+    let output = Command::new(python_cmd)
         .args(["-c", "import torch; print(torch.cuda.is_available())"])
         .output()
         .or_else(|_| {
@@ -95,109 +135,29 @@ pub fn check_cuda() -> bool {
                 .output()
         })
         .ok();
-
+    
     output
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().contains("True"))
         .unwrap_or(false)
-}
-
-/// Check if pip is available and get its version
-pub fn check_pip() -> (bool, Option<String>) {
-    let output = Command::new("python3")
-        .args(["-m", "pip", "--version"])
-        .output()
-        .or_else(|_| Command::new("python").args(["-m", "pip", "--version"]).output())
-        .ok();
-
-    match output {
-        Some(o) if o.status.success() => {
-            let version_str = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            // Parse version from "pip 24.0 from ..." or "pip 24.0.2 from ..."
-            let version = version_str
-                .strip_prefix("pip ")
-                .and_then(|s| s.split_whitespace().next())
-                .map(|s| s.to_string());
-            (true, version)
-        }
-        _ => (false, None),
-    }
-}
-
-/// Check if ultralytics is available and get its version
-pub fn check_ultralytics() -> (bool, Option<String>) {
-    let output = Command::new("python3")
-        .args(["-c", "import ultralytics; print(ultralytics.__version__)"])
-        .output()
-        .or_else(|_| {
-            Command::new("python")
-                .args(["-c", "import ultralytics; print(ultralytics.__version__)"])
-                .output()
-        })
-        .ok();
-
-    match output {
-        Some(o) if o.status.success() => {
-            let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if version.is_empty() {
-                (true, None)
-            } else {
-                (true, Some(version))
-            }
-        }
-        _ => (false, None),
-    }
-}
-
-/// Check GPU info via nvidia-smi
-pub fn check_gpu() -> (Option<String>, Option<String>) {
-    let output = Command::new("nvidia-smi")
-        .args(["--query-gpu=name,driver_version", "--format=csv,noheader,nounits"])
-        .output()
-        .ok();
-
-    match output {
-        Some(o) if o.status.success() => {
-            let line = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-            if parts.len() >= 2 {
-                (Some(parts[0].to_string()), Some(parts[1].to_string()))
-            } else if parts.len() == 1 && !parts[0].is_empty() {
-                (Some(parts[0].to_string()), None)
-            } else {
-                (None, None)
-            }
-        }
-        _ => (None, None),
-    }
 }
 
 /// Get the full status of the Python environment
 pub fn get_env_status() -> PythonEnvStatus {
     let python_version = check_python();
     let torch_version = check_torch();
-    let cuda_available = check_cuda();
-    let (pip_ok, pip_version) = check_pip();
-    let (ultralytics_available, ultralytics_version) = check_ultralytics();
-    let (gpu_name, gpu_driver_version) = check_gpu();
     let installing = *get_install_lock().lock().unwrap();
-
-    // ready_for_training is true when ultralytics + torch are available (CUDA optional for CPU training)
-    let ready_for_training = ultralytics_available && torch_version.is_some();
+    let (is_conda, is_mamba, conda_env_name) = check_conda();
 
     PythonEnvStatus {
         python_available: python_version.is_some(),
         python_version,
         torch_available: torch_version.is_some(),
         torch_version,
-        cuda_available,
-        pip_ok,
-        pip_version,
-        ultralytics_available,
-        ultralytics_version,
-        gpu_name,
-        gpu_driver_version,
-        ready_for_training,
+        cuda_available: check_cuda(),
         installing,
+        is_conda,
+        is_mamba,
+        conda_env_name,
     }
 }
 
@@ -231,112 +191,112 @@ pub fn install_python_deps(
     }
 
     std::thread::spawn(move || {
-        // Use catch_unwind to ensure lock is released even if thread panics
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // Emit initial progress
-            if let Some(ref cb) = on_progress {
-                cb(InstallProgress {
-                    stage: "starting".to_string(),
-                    message: "Starting Python environment setup...".to_string(),
-                    progress: Some(0.0),
-                });
-            }
+        // Emit initial progress
+        if let Some(ref cb) = on_progress {
+            cb(InstallProgress {
+                stage: "starting".to_string(),
+                message: "Starting Python environment setup...".to_string(),
+                progress: Some(0.0),
+            });
+        }
 
-            // Install torch with CUDA 12.4 support
-            if let Some(ref cb) = on_progress {
-                cb(InstallProgress {
-                    stage: "installing_torch".to_string(),
-                    message: "Installing PyTorch with CUDA 12.4 support...".to_string(),
-                    progress: Some(0.2),
-                });
-            }
+        // Determine pip install command based on environment
+        let python_path = resolve_python_path().unwrap_or_else(|| "python3".to_string());
+        let pip_cmd = if check_conda().0 || check_conda().1 {
+            // In conda/mamba env, use python -m pip for proper environment targeting
+            vec![python_path.as_str(), "-m", "pip"]
+        } else {
+            vec!["python3", "-m", "pip"]
+        };
 
-            let install_torch = Command::new("python3")
-                .args([
-                    "-m",
-                    "pip",
-                    "install",
-                    "torch",
-                    "--index-url",
-                    "https://download.pytorch.org/whl/cu124",
-                ])
-                .status();
+        // Install torch with CUDA 12.4 support
+        if let Some(ref cb) = on_progress {
+            cb(InstallProgress {
+                stage: "installing_torch".to_string(),
+                message: "Installing PyTorch with CUDA 12.4 support...".to_string(),
+                progress: Some(0.2),
+            });
+        }
 
-            match install_torch {
-                Ok(status) if status.success() => {
-                    if let Some(ref cb) = on_progress {
-                        cb(InstallProgress {
-                            stage: "torch_installed".to_string(),
-                            message: "PyTorch installed successfully".to_string(),
-                            progress: Some(0.6),
-                        });
-                    }
-                }
-                _ => {
-                    if let Some(ref cb) = on_progress {
-                        cb(InstallProgress {
-                            stage: "torch_install_failed".to_string(),
-                            message: "Failed to install PyTorch, continuing...".to_string(),
-                            progress: Some(0.6),
-                        });
-                    }
-                }
-            }
+        let mut cmd = Command::new(&pip_cmd[0]);
+        cmd.args(&pip_cmd[1..])
+            .args([
+                "install",
+                "torch",
+                "--index-url",
+                "https://download.pytorch.org/whl/cu124",
+            ]);
+        let install_torch = cmd.status();
 
-            // Install ultralytics (YOLO)
-            if let Some(ref cb) = on_progress {
-                cb(InstallProgress {
-                    stage: "installing_ultralytics".to_string(),
-                    message: "Installing ultralytics (YOLO)...".to_string(),
-                    progress: Some(0.7),
-                });
-            }
-
-            let install_ultralytics = Command::new("python3")
-                .args(["-m", "pip", "install", "ultralytics"])
-                .status();
-
-            let ultralytics_ok = match install_ultralytics {
-                Ok(status) => status.success(),
-                _ => false,
-            };
-
-            if ultralytics_ok {
+        match install_torch {
+            Ok(status) if status.success() => {
                 if let Some(ref cb) = on_progress {
                     cb(InstallProgress {
-                        stage: "ultralytics_installed".to_string(),
-                        message: "Ultralytics installed successfully".to_string(),
-                        progress: Some(0.9),
+                        stage: "torch_installed".to_string(),
+                        message: "PyTorch installed successfully".to_string(),
+                        progress: Some(0.6),
                     });
                 }
             }
+            _ => {
+                if let Some(ref cb) = on_progress {
+                    cb(InstallProgress {
+                        stage: "torch_install_failed".to_string(),
+                        message: "Failed to install PyTorch, continuing...".to_string(),
+                        progress: Some(0.6),
+                    });
+                }
+            }
+        }
 
-            // Get versions
-            let torch_version = check_torch();
-            let python_version = check_python();
+        // Install ultralytics (YOLO)
+        if let Some(ref cb) = on_progress {
+            cb(InstallProgress {
+                stage: "installing_ultralytics".to_string(),
+                message: "Installing ultralytics (YOLO)...".to_string(),
+                progress: Some(0.7),
+            });
+        }
 
-            // Emit completion
-            let success = torch_version.is_some();
-            if let Some(ref cb) = on_done {
-                cb(InstallResult {
-                    success,
-                    message: if success {
-                        "Python environment setup completed".to_string()
-                    } else {
-                        "Python environment setup completed with errors".to_string()
-                    },
-                    python_version,
-                    torch_version,
+        let mut cmd_ultralytics = Command::new(&pip_cmd[0]);
+        cmd_ultralytics.args(&pip_cmd[1..]).arg("install");
+        let install_ultralytics = cmd_ultralytics.arg("ultralytics").status();
+
+        let ultralytics_ok = match install_ultralytics {
+            Ok(status) => status.success(),
+            _ => false,
+        };
+
+        if ultralytics_ok {
+            if let Some(ref cb) = on_progress {
+                cb(InstallProgress {
+                    stage: "ultralytics_installed".to_string(),
+                    message: "Ultralytics installed successfully".to_string(),
+                    progress: Some(0.9),
                 });
             }
-        }));
-
-        // Release lock regardless of panic status
-        *lock.lock().unwrap() = false;
-
-        // Re-panic if caught a panic
-        if let Err(e) = result {
-            std::panic::panic_any(e);
         }
+
+        // Get versions
+        let torch_version = check_torch();
+        let python_version = check_python();
+
+        // Emit completion
+        let success = torch_version.is_some();
+        if let Some(ref cb) = on_done {
+            cb(InstallResult {
+                success,
+                message: if success {
+                    "Python environment setup completed".to_string()
+                } else {
+                    "Python environment setup completed with errors".to_string()
+                },
+                python_version,
+                torch_version,
+            });
+        }
+
+        // Release lock
+        *lock.lock().unwrap() = false;
     });
 }
