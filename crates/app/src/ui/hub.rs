@@ -32,16 +32,55 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         );
         ui.add_space(4.0);
 
-        let env_ok = app.python_env_status.python_available;
-        let (dot_color, status_text) = if env_ok {
-            (AppleColors::SUCCESS, "环境就绪")
-        } else {
-            (AppleColors::DANGER, "环境未就绪")
-        };
-        ui.horizontal(|ui| {
-            let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-            ui.painter().circle_filled(dot_rect.center(), 4.0, dot_color);
-            ui.label(egui::RichText::new(status_text).size(11.0).color(dot_color));
+        // ── 环境状态概览卡片 ──
+        ui.add_space(12.0);
+        compact_card_frame().show(ui, |ui| {
+            ui.set_max_width(available.x.min(480.0));
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("运行环境").size(12.0).strong().color(AppleColors::TEXT));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(egui::RichText::new("去设置 →").size(11.0).color(AppleColors::PRIMARY)).clicked() {
+                        app.route = Route::Settings;
+                    }
+                });
+            });
+            ui.add_space(8.0);
+
+            let status = &app.python_env_status;
+            egui::Grid::new("hub_env_grid").num_columns(3).spacing([24.0, 6.0]).show(ui, |ui| {
+                // Row: Python
+                hub_env_item(ui, "Python", status.python_available, status.python_version.as_deref().unwrap_or("未安装"));
+                ui.end_row();
+                // Row: PyTorch
+                let torch_text = if status.torch_available {
+                    status.torch_version.as_deref().unwrap_or("已安装")
+                } else { "未安装" };
+                hub_env_item(ui, "PyTorch", status.torch_available, torch_text);
+                ui.end_row();
+                // Row: CUDA
+                let cuda_text = if status.cuda_available { "可用" } else { "未检测" };
+                hub_env_item(ui, "CUDA", status.cuda_available, cuda_text);
+                ui.end_row();
+            });
+
+            // 环境未就绪提示
+            if !status.python_available {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let warning_rect = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover()).1.rect;
+                    ui.painter().text(
+                        warning_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "⚠",
+                        egui::FontId::new(13.0, egui::FontFamily::Proportional),
+                        AppleColors::WARNING,
+                    );
+                    ui.colored_label(
+                        AppleColors::WARNING,
+                        "Python 环境未就绪，部分功能（训练、推理）将不可用。请点击右上角「去设置」安装。"
+                    );
+                });
+            }
         });
 
         // ── 项目概览（如有项目） ──
@@ -135,6 +174,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 .color(AppleColors::TEXT_TERTIARY),
         );
     });
+}
+
+fn hub_env_item(ui: &mut egui::Ui, label: &str, ok: bool, value: &str) {
+    let color = if ok { AppleColors::SUCCESS } else { AppleColors::DANGER };
+    ui.label(egui::RichText::new(label).size(11.0).color(AppleColors::TEXT_SECONDARY));
+    let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+    ui.painter().circle_filled(dot_rect.center(), 3.5, color);
+    ui.label(egui::RichText::new(value).size(11.0).color(color));
 }
 
 fn hub_stat(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32) {

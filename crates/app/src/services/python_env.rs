@@ -4,7 +4,66 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-/// Progress event payload for Python environment installation
+// ============================================================================
+// 安装方案与配置类型
+// ============================================================================
+
+/// 国内镜像源
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MirrorSource {
+    Default,
+    Tsinghua,
+    Aliyun,
+    USTC,
+}
+
+impl MirrorSource {
+    pub fn label(&self) -> &'static str {
+        match self {
+            MirrorSource::Default => "官方源",
+            MirrorSource::Tsinghua => "清华 TUNA",
+            MirrorSource::Aliyun => "阿里云",
+            MirrorSource::USTC => "中科大 USTC",
+        }
+    }
+
+    pub fn pypi_url(&self) -> &'static str {
+        match self {
+            MirrorSource::Default => "https://pypi.org/simple",
+            MirrorSource::Tsinghua => "https://pypi.tuna.tsinghua.edu.cn/simple",
+            MirrorSource::Aliyun => "https://mirrors.aliyun.com/pypi/simple/",
+            MirrorSource::USTC => "https://pypi.mirrors.ustc.edu.cn/simple/",
+        }
+    }
+}
+
+/// PyTorch CUDA 索引
+#[derive(Debug, Clone)]
+pub struct TorchIndex {
+    pub url: String,
+    pub label: String,
+}
+
+/// 安装方案
+#[derive(Debug, Clone)]
+pub struct InstallPlan {
+    /// Python 版本
+    pub python_version: String,
+    /// 主索引（国内镜像）
+    pub primary_index: String,
+    /// PyTorch 额外索引（官方 CUDA/CPU 索引）
+    pub torch_index: Option<String>,
+    /// 需要安装的包列表
+    pub packages: Vec<String>,
+    /// 方案描述
+    pub description: String,
+    /// 是否为 GPU 方案
+    pub is_gpu: bool,
+    /// 警告信息（如 CUDA 版本不兼容提示）
+    pub warning: Option<String>,
+}
+
+/// 安装阶段进度
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallProgress {
     pub stage: String,
@@ -12,7 +71,7 @@ pub struct InstallProgress {
     pub progress: Option<f32>,
 }
 
-/// Result event payload for Python environment installation
+/// 安装结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstallResult {
     pub success: bool,
@@ -21,7 +80,7 @@ pub struct InstallResult {
     pub torch_version: Option<String>,
 }
 
-/// Status of the Python environment
+/// Python 环境状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PythonEnvStatus {
     pub python_available: bool,
@@ -192,65 +251,93 @@ impl UvManager {
         self.uv_path.as_ref().ok_or_else(|| "uv not found".to_string())
     }
 
-    /// Install dependencies from pyproject.toml with progress reporting
+    /// 根据 InstallPlan 安装依赖
+    pub async fn install_with_plan(
+        &self,
+        plan: &InstallPlan,
+        on_progress: impl Fn(String),
+    ) -> Result<(), String> {
+        let uv = self.uv_path.as_ref().ok_or("uv not found")?;
+        
+        on_progress(format!("安装方案: {}", plan.description));
+        on_progress(format!("Python 版本: {}", plan.python_version));
+        if let Some(ref torch_idx) = plan.torch_index {
+            on_progress(format!("PyTorch 索引: {}", torch_idx));
+        }
+        on_progress(format!("包列表: {}", plan.packages.join(", ")));
+
+        // 安装 torch 相关（使用 PyTorch 官方索引）
+        if let Some(ref torch_index) = plan.torch_index {
+            on_progress("正在安装 PyTorch（含 CUDA 支持）...".to_string());
+            let mut cmd = tokio::process::Command::new(uv);
+            cmd.arg("pip")
+                .arg("install")
+                .arg("--python")
+                .arg(&self.python_path)
+                .arg("--index-url")
+                .arg(torch_index)
+                .args(["torch", "torchvision"]);
+            
+            let output = cmd.output().await
+                .map_err(|e| format!("安装 torch 失败: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("torch 安装失败: {}", stderr));
+            }
+            on_progress("PyTorch 安装完成".to_string());
+        } else {
+            // CPU 模式，使用主索引安装 torch
+            on_progress("正在安装 PyTorch（CPU 版本）...".to_string());
+            let mut cmd = tokio::process::Command::new(uv);
+            cmd.arg("pip")
+                .arg("install")
+                .arg("--python")
+                .arg(&self.python_path)
+                .args(["torch", "torchvision"]);
+            
+            let output = cmd.output().await
+                .map_err(|e| format!("安装 torch 失败: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("torch 安装失败: {}", stderr));
+            }
+            on_progress("PyTorch 安装完成".to_string());
+        }
+
+        // 安装其他包（使用主索引）
+        let other_packages: Vec<&str> = plan.packages.iter()
+            .filter(|p| !p.starts_with("torch"))
+            .map(|s| s.as_str())
+            .collect();
+        
+        if !other_packages.is_empty() {
+            on_progress(format!("正在安装其他依赖: {}...", other_packages.join(", ")));
+            let mut cmd = tokio::process::Command::new(uv);
+            cmd.arg("pip")
+                .arg("install")
+                .arg("--python")
+                .arg(&self.python_path)
+                .args(&other_packages);
+            
+            let output = cmd.output().await
+                .map_err(|e| format!("安装依赖失败: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("依赖安装失败: {}", stderr));
+            }
+            on_progress("所有依赖安装完成".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// 兼容旧接口：从 pyproject.toml 安装（已废弃，使用 install_with_plan）
     pub async fn install_deps(
         &self,
         on_progress: impl Fn(String),
     ) -> Result<(), String> {
-        let uv = self.uv_path.as_ref().ok_or("uv not found")?;
-        let pyproject = Self::find_pyproject_toml()
-            .ok_or("pyproject.toml not found. Please ensure it exists in the application directory.".to_string())?;
-        
-        on_progress(format!("Using pyproject.toml at: {}", pyproject.display()));
-
-        on_progress("Detecting CUDA availability...".to_string());
-        let has_cuda = Self::check_nvidia_gpu();
-        
-        let torch_index = if has_cuda {
-            "https://download.pytorch.org/whl/cu124"
-        } else {
-            "https://download.pytorch.org/whl/cpu"
-        };
-
-        on_progress(format!("Installing dependencies (PyTorch from {})...", torch_index));
-
-        // Build uv pip install command
-        let mut cmd = tokio::process::Command::new(uv);
-        cmd.arg("pip")
-            .arg("install")
-            .arg("--python")
-            .arg(&self.python_path)
-            .arg("-r")
-            .arg(&pyproject)
-            .arg("--extra-index-url")
-            .arg(torch_index)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut child = cmd.spawn()
-            .map_err(|e| format!("Failed to spawn uv pip install: {}", e))?;
-
-        // Stream stdout for progress
-        if let Some(stdout) = child.stdout.take() {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if !line.trim().is_empty() {
-                    on_progress(line);
-                }
-            }
-        }
-
-        let output = child.wait_with_output().await
-            .map_err(|e| format!("Failed to wait for uv pip install: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Dependency installation failed: {}", stderr));
-        }
-
-        on_progress("Installation complete".to_string());
-        Ok(())
+        let plan = Self::generate_install_plan(MirrorSource::Default);
+        self.install_with_plan(&plan, on_progress).await
     }
 
     /// Check if NVIDIA GPU is available
@@ -260,6 +347,165 @@ impl UvManager {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    /// 生成安装方案（CUDA 感知）
+    pub fn generate_install_plan(mirror: MirrorSource) -> InstallPlan {
+        use crate::services::env::detect_cuda;
+        
+        let cuda = detect_cuda();
+        let primary_index = mirror.pypi_url().to_string();
+        
+        if cfg!(target_os = "macos") {
+            // macOS 使用 CPU 版本（Apple Silicon 可用 MPS，但 PyTorch 的 MPS 支持通过 CPU wheel 提供）
+            return InstallPlan {
+                python_version: "3.11".to_string(),
+                primary_index,
+                torch_index: None,
+                packages: vec![
+                    "torch".to_string(),
+                    "torchvision".to_string(),
+                    "onnxruntime".to_string(),
+                    "opencv-python".to_string(),
+                    "numpy".to_string(),
+                    "pillow".to_string(),
+                ],
+                description: "macOS CPU 模式（Apple Silicon 自动使用 MPS 加速）".to_string(),
+                is_gpu: false,
+                warning: None,
+            };
+        }
+        
+        if !cuda.available {
+            // 无 NVIDIA GPU — CPU 模式
+            return InstallPlan {
+                python_version: "3.11".to_string(),
+                primary_index,
+                torch_index: Some("https://download.pytorch.org/whl/cpu".to_string()),
+                packages: vec![
+                    "torch".to_string(),
+                    "torchvision".to_string(),
+                    "onnxruntime".to_string(),
+                    "opencv-python".to_string(),
+                    "numpy".to_string(),
+                    "pillow".to_string(),
+                ],
+                description: "CPU 模式（无 NVIDIA GPU  detected）".to_string(),
+                is_gpu: false,
+                warning: Some("未检测到 NVIDIA GPU，将使用 CPU 推理。如需 GPU 加速，请安装 NVIDIA 显卡驱动和 CUDA 12.x。".to_string()),
+            };
+        }
+        
+        // 解析 CUDA runtime 版本（如 "12.2" → 12）
+        let cuda_major = cuda.runtime_version.as_ref()
+            .and_then(|v| v.split('.').next())
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        
+        match cuda_major {
+            12 => {
+                // CUDA 12.x — 使用 cu124（PyTorch 2.4+ 推荐）
+                InstallPlan {
+                    python_version: "3.11".to_string(),
+                    primary_index,
+                    torch_index: Some("https://download.pytorch.org/whl/cu124".to_string()),
+                    packages: vec![
+                        "torch".to_string(),
+                        "torchvision".to_string(),
+                        "onnxruntime-gpu".to_string(),
+                        "opencv-python".to_string(),
+                        "numpy".to_string(),
+                        "pillow".to_string(),
+                    ],
+                    description: format!("GPU 加速模式（CUDA {}）", cuda.runtime_version.clone().unwrap_or_default()),
+                    is_gpu: true,
+                    warning: None,
+                }
+            }
+            11 => {
+                // CUDA 11.x — 警告：ORT 1.19+ 不再在 PyPI 提供 CUDA 11 版本
+                InstallPlan {
+                    python_version: "3.11".to_string(),
+                    primary_index,
+                    torch_index: Some("https://download.pytorch.org/whl/cu118".to_string()),
+                    packages: vec![
+                        "torch".to_string(),
+                        "torchvision".to_string(),
+                        "onnxruntime".to_string(),  // fallback 到 CPU 版本
+                        "opencv-python".to_string(),
+                        "numpy".to_string(),
+                        "pillow".to_string(),
+                    ],
+                    description: format!("GPU 模式（CUDA {}，部分兼容）", cuda.runtime_version.clone().unwrap_or_default()),
+                    is_gpu: true,
+                    warning: Some("检测到 CUDA 11.x。ONNX Runtime GPU 1.19+ 不再支持 CUDA 11，将使用 CPU 版本的 ONNX Runtime。建议升级 NVIDIA 驱动以支持 CUDA 12.x。".to_string()),
+                }
+            }
+            _ => {
+                // 未知 CUDA 版本 — 回退 CPU
+                InstallPlan {
+                    python_version: "3.11".to_string(),
+                    primary_index,
+                    torch_index: None,
+                    packages: vec![
+                        "torch".to_string(),
+                        "torchvision".to_string(),
+                        "onnxruntime".to_string(),
+                        "opencv-python".to_string(),
+                        "numpy".to_string(),
+                        "pillow".to_string(),
+                    ],
+                    description: "CPU 回退模式（CUDA 版本未知或不兼容）".to_string(),
+                    is_gpu: false,
+                    warning: Some(format!("检测到不支持的 CUDA 版本 {:?}，将使用 CPU 模式。", cuda.runtime_version)),
+                }
+            }
+        }
+    }
+
+    /// 配置 uv 使用国内镜像（写入 ~/.config/uv/uv.toml）
+    pub fn configure_mirror(mirror: MirrorSource) -> Result<(), String> {
+        if mirror == MirrorSource::Default {
+            // 删除配置文件（恢复默认）
+            let config_path = Self::uv_config_path();
+            if config_path.exists() {
+                std::fs::remove_file(&config_path).map_err(|e| format!("删除 uv 配置失败: {}", e))?;
+            }
+            return Ok(());
+        }
+        
+        let config_dir = dirs::config_dir()
+            .or_else(dirs::home_dir)
+            .map(|h| h.join(".config").join("uv"))
+            .unwrap_or_else(|| PathBuf::from(".config/uv"));
+        
+        std::fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("创建 uv 配置目录失败: {}", e))?;
+        
+        let config_content = format!(
+            r#"[[index]]
+url = "{}"
+default = true
+
+[pip]
+index-url = "{}"
+"#,
+            mirror.pypi_url(),
+            mirror.pypi_url()
+        );
+        
+        let config_path = config_dir.join("uv.toml");
+        std::fs::write(&config_path, config_content)
+            .map_err(|e| format!("写入 uv 配置失败: {}", e))?;
+        
+        Ok(())
+    }
+
+    fn uv_config_path() -> PathBuf {
+        dirs::config_dir()
+            .or_else(dirs::home_dir)
+            .map(|h| h.join(".config").join("uv").join("uv.toml"))
+            .unwrap_or_else(|| PathBuf::from(".config/uv/uv.toml"))
     }
 
     /// Find pyproject.toml by checking multiple locations
