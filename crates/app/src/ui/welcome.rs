@@ -67,6 +67,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 "YOLO 视觉",
                 "目标检测 / 标注 / 训练 / 推理",
                 AppleColors::PINK,
+                app,
                 |painter, rect, color| {
                     // 绘制视频/相机图标
                     let body = rect.shrink(4.0);
@@ -74,7 +75,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     let lens = body.center();
                     painter.circle_stroke(lens, body.width().min(body.height()) * 0.25, egui::Stroke::new(1.5, color));
                 },
-                || { app.route = Route::Hub; },
+                |app| { app.route = Route::Hub; },
             );
 
             welcome_module_card(
@@ -82,6 +83,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 "HTTP 工具",
                 "API 调试 / 请求测试（即将上线）",
                 AppleColors::PRIMARY,
+                app,
                 |painter, rect, color| {
                     // 绘制网络/连接图标
                     let c = rect.center();
@@ -93,7 +95,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     painter.line_segment([c + egui::vec2(-r, 0.0), c + egui::vec2(-r * 1.3, 0.0)], egui::Stroke::new(1.5, color));
                     painter.line_segment([c + egui::vec2(r, 0.0), c + egui::vec2(r * 1.3, 0.0)], egui::Stroke::new(1.5, color));
                 },
-                || {},
+                |_app| {},
             );
 
             welcome_module_card(
@@ -101,6 +103,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 "更多工具",
                 "持续扩展中...",
                 tc.text_tertiary,
+                app,
                 |painter, rect, color| {
                     // 三个小圆点
                     let c = rect.center();
@@ -109,7 +112,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     painter.circle_filled(c, 3.0, color);
                     painter.circle_filled(c + egui::vec2(spacing, 0.0), 3.0, color);
                 },
-                || {},
+                |_app| {},
             );
         });
 
@@ -131,30 +134,33 @@ fn welcome_module_card(
     title: &str,
     desc: &str,
     accent: egui::Color32,
+    app: &mut RustToolsApp,
     draw_icon: impl FnOnce(&egui::Painter, egui::Rect, egui::Color32),
-    on_click: impl FnOnce(),
+    on_click: impl FnOnce(&mut RustToolsApp),
 ) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
     let hovered = response.hovered();
     let painter = ui.painter();
+
+    let tc = app.colors();
 
     // 阴影
     if hovered {
         painter.rect_filled(
             rect.expand(4.0),
             egui::CornerRadius::same(16),
-            AppleColors::SHADOW_HOVER,
+            tc.shadow_hover,
         );
     } else {
         painter.rect_filled(
             rect.translate(egui::vec2(0.0, 2.0)),
             egui::CornerRadius::same(14),
-            AppleColors::SHADOW,
+            tc.shadow,
         );
     }
 
     // 背景
-    painter.rect_filled(rect, egui::CornerRadius::same(14), AppleColors::SURFACE);
+    painter.rect_filled(rect, egui::CornerRadius::same(14), tc.surface);
 
     // 顶部彩色条
     let top_bar = egui::Rect::from_min_size(
@@ -164,7 +170,7 @@ fn welcome_module_card(
     painter.rect_filled(top_bar, egui::CornerRadius::same(2), accent);
 
     // 边框
-    let border_color = if hovered { accent } else { AppleColors::BORDER };
+    let border_color = if hovered { accent } else { tc.border };
     painter.rect_stroke(
         rect,
         egui::CornerRadius::same(14),
@@ -185,7 +191,7 @@ fn welcome_module_card(
     painter.circle_filled(icon_rect.center(), icon_size * 0.5, icon_bg);
 
     // 绘制自定义图标
-    let icon_color = if hovered { AppleColors::SURFACE } else { accent };
+    let icon_color = if hovered { tc.surface } else { accent };
     draw_icon(painter, icon_rect.shrink(10.0), icon_color);
 
     // 标题
@@ -194,7 +200,7 @@ fn welcome_module_card(
         egui::Align2::LEFT_CENTER,
         title,
         egui::FontId::new(17.0, egui::FontFamily::Proportional),
-        AppleColors::TEXT,
+        tc.text,
     );
 
     // 描述
@@ -203,11 +209,11 @@ fn welcome_module_card(
         egui::Align2::LEFT_CENTER,
         desc,
         egui::FontId::new(12.0, egui::FontFamily::Proportional),
-        AppleColors::TEXT_SECONDARY,
+        tc.text_secondary,
     );
 
     // 箭头
-    let arrow_color = if hovered { accent } else { AppleColors::TEXT_TERTIARY };
+    let arrow_color = if hovered { accent } else { tc.text_tertiary };
     painter.text(
         egui::pos2(rect.max.x - 20.0, rect.center().y),
         egui::Align2::RIGHT_CENTER,
@@ -217,7 +223,7 @@ fn welcome_module_card(
     );
 
     if response.clicked() {
-        on_click();
+        on_click(app);
     }
 
     response

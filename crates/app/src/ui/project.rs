@@ -5,6 +5,7 @@ use crate::models::{DatasetPaths, ProjectConfig};
 use crate::theme::{AppleColors, card_frame, page_header_with_action};
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
 
     let mut goto_annotation = false;
     let mut goto_training = false;
@@ -51,7 +52,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     );
 
     if let Some(project) = app.current_project.clone() {
-        show_project_detail(ui, &project, &mut goto_annotation, &mut goto_training);
+        show_project_detail(ui, &project, &mut goto_annotation, &mut goto_training, &tc);
     } else {
         show_empty_state(ui, app);
     }
@@ -64,7 +65,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     }
 }
 
-fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotation: &mut bool, goto_training: &mut bool) {
+fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotation: &mut bool, goto_training: &mut bool, tc: &crate::theme::ThemeColors) {
     let scan = scan_project_contents(project);
     let available = ui.available_size();
     let left_w = (available.x * 0.55).min(520.0);
@@ -82,7 +83,7 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                         egui::RichText::new("项目信息")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
@@ -90,19 +91,19 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                         .num_columns(2)
                         .spacing([20.0, 10.0])
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new("项目名称:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("项目名称:").color(tc.text_secondary));
                             ui.label(egui::RichText::new(&project.name).strong());
                             ui.end_row();
 
-                            ui.label(egui::RichText::new("YOLO 版本:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("YOLO 版本:").color(tc.text_secondary));
                             ui.label(&project.yolo_version);
                             ui.end_row();
 
-                            ui.label(egui::RichText::new("图像尺寸:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("图像尺寸:").color(tc.text_secondary));
                             ui.label(format!("{}x{}", project.image_size, project.image_size));
                             ui.end_row();
 
-                            ui.label(egui::RichText::new("训练/验证划分:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("训练/验证划分:").color(tc.text_secondary));
                             ui.label(format!("{:.0}% / {:.0}%", project.train_split * 100.0, project.val_split * 100.0));
                             ui.end_row();
                         });
@@ -111,7 +112,7 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         let annot_btn = egui::Button::new(
-                            egui::RichText::new("图像标注").color(AppleColors::SURFACE).strong(),
+                            egui::RichText::new("图像标注").color(tc.surface).strong(),
                         )
                         .fill(AppleColors::PINK)
                         .corner_radius(egui::CornerRadius::same(8));
@@ -119,7 +120,7 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                             *goto_annotation = true;
                         }
                         let train_btn = egui::Button::new(
-                            egui::RichText::new("开始训练").color(AppleColors::SURFACE).strong(),
+                            egui::RichText::new("开始训练").color(tc.surface).strong(),
                         )
                         .fill(AppleColors::SUCCESS)
                         .corner_radius(egui::CornerRadius::same(8));
@@ -137,17 +138,17 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                         egui::RichText::new("数据集统计")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 12.0;
-                        stat_card(ui, "训练图像", &format!("{}", scan.train_images), AppleColors::PRIMARY);
-                        stat_card(ui, "验证图像", &format!("{}", scan.val_images), AppleColors::WARNING);
-                        stat_card(ui, "标注总数", &format!("{}", scan.total_annotations), AppleColors::SUCCESS);
-                        stat_card(ui, "模型文件", &format!("{}", scan.model_count), AppleColors::PURPLE);
-                        stat_card(ui, "训练记录", &format!("{}", scan.run_count), AppleColors::TEAL);
+                        stat_card(ui, "训练图像", &format!("{}", scan.train_images), AppleColors::PRIMARY, tc);
+                        stat_card(ui, "验证图像", &format!("{}", scan.val_images), AppleColors::WARNING, tc);
+                        stat_card(ui, "标注总数", &format!("{}", scan.total_annotations), AppleColors::SUCCESS, tc);
+                        stat_card(ui, "模型文件", &format!("{}", scan.model_count), AppleColors::PURPLE, tc);
+                        stat_card(ui, "训练记录", &format!("{}", scan.run_count), AppleColors::TEAL, tc);
                     });
 
                     ui.add_space(12.0);
@@ -158,23 +159,23 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                         egui::RichText::new("数据集路径")
                             .size(12.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(6.0);
                     egui::Grid::new("dataset_paths_grid")
                         .num_columns(2)
                         .spacing([16.0, 6.0])
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new("训练图像:").color(AppleColors::TEXT_SECONDARY).size(11.0));
+                            ui.label(egui::RichText::new("训练图像:").color(tc.text_secondary).size(11.0));
                             ui.monospace(egui::RichText::new(&project.images.train).size(11.0));
                             ui.end_row();
-                            ui.label(egui::RichText::new("验证图像:").color(AppleColors::TEXT_SECONDARY).size(11.0));
+                            ui.label(egui::RichText::new("验证图像:").color(tc.text_secondary).size(11.0));
                             ui.monospace(egui::RichText::new(&project.images.val).size(11.0));
                             ui.end_row();
-                            ui.label(egui::RichText::new("训练标注:").color(AppleColors::TEXT_SECONDARY).size(11.0));
+                            ui.label(egui::RichText::new("训练标注:").color(tc.text_secondary).size(11.0));
                             ui.monospace(egui::RichText::new(&project.labels.train).size(11.0));
                             ui.end_row();
-                            ui.label(egui::RichText::new("验证标注:").color(AppleColors::TEXT_SECONDARY).size(11.0));
+                            ui.label(egui::RichText::new("验证标注:").color(tc.text_secondary).size(11.0));
                             ui.monospace(egui::RichText::new(&project.labels.val).size(11.0));
                             ui.end_row();
                         });
@@ -195,12 +196,12 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                             egui::RichText::new("目标类别")
                                 .size(14.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         ui.label(
                             egui::RichText::new(format!("{} 个", project.classes.len()))
                                 .size(12.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                     });
                     ui.add_space(12.0);
@@ -253,21 +254,21 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                             egui::RichText::new("模型文件")
                                 .size(13.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         ui.add_space(6.0);
                         for model in &scan.models {
                             ui.horizontal(|ui| {
                                 let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
                                 ui.painter().circle_filled(dot_rect.center(), 3.0, AppleColors::PURPLE);
-                                ui.label(egui::RichText::new(model).size(11.0).color(AppleColors::TEXT_SECONDARY));
+                                ui.label(egui::RichText::new(model).size(11.0).color(tc.text_secondary));
                             });
                         }
                         if scan.model_count > scan.models.len() {
                             ui.label(
                                 egui::RichText::new(format!("... 还有 {} 个", scan.model_count - scan.models.len()))
                                     .size(11.0)
-                                    .color(AppleColors::TEXT_TERTIARY),
+                                    .color(tc.text_tertiary),
                             );
                         }
                     }
@@ -279,21 +280,21 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
                             egui::RichText::new("训练记录")
                                 .size(13.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         ui.add_space(6.0);
                         for run in &scan.runs {
                             ui.horizontal(|ui| {
                                 let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
                                 ui.painter().circle_filled(dot_rect.center(), 3.0, AppleColors::TEAL);
-                                ui.label(egui::RichText::new(run).size(11.0).color(AppleColors::TEXT_SECONDARY));
+                                ui.label(egui::RichText::new(run).size(11.0).color(tc.text_secondary));
                             });
                         }
                         if scan.run_count > scan.runs.len() {
                             ui.label(
                                 egui::RichText::new(format!("... 还有 {} 个", scan.run_count - scan.runs.len()))
                                     .size(11.0)
-                                    .color(AppleColors::TEXT_TERTIARY),
+                                    .color(tc.text_tertiary),
                             );
                         }
                     }
@@ -303,7 +304,7 @@ fn show_project_detail(ui: &mut egui::Ui, project: &ProjectConfig, goto_annotati
     });
 }
 
-fn stat_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32) {
+fn stat_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32, tc: &crate::theme::ThemeColors) {
     ui.vertical(|ui| {
         let (rect, _response) = ui.allocate_exact_size(egui::vec2(80.0, 56.0), egui::Sense::hover());
         let painter = ui.painter();
@@ -321,7 +322,7 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32) 
             egui::Align2::CENTER_CENTER,
             label,
             egui::FontId::new(10.0, egui::FontFamily::Proportional),
-            AppleColors::TEXT_SECONDARY,
+            tc.text_secondary,
         );
     });
 }
@@ -419,6 +420,7 @@ fn scan_project_contents(project: &ProjectConfig) -> ProjectScanResult {
 }
 
 fn show_empty_state(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let available = ui.available_size();
     ui.allocate_ui_with_layout(
         egui::vec2(available.x, available.y * 0.7),
@@ -430,7 +432,7 @@ fn show_empty_state(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             let icon_size = 64.0;
             let icon_rect = ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover()).1.rect;
             let painter = ui.painter();
-            let stroke = egui::Stroke::new(2.0, AppleColors::TEXT_TERTIARY);
+            let stroke = egui::Stroke::new(2.0, tc.text_tertiary);
             let folder_body = icon_rect.shrink(4.0);
             // 主体
             painter.rect_stroke(folder_body, egui::CornerRadius::same(8), stroke, egui::StrokeKind::Inside);
@@ -446,11 +448,11 @@ fn show_empty_state(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 egui::RichText::new("暂无项目")
                     .size(18.0)
                     .strong()
-                    .color(AppleColors::TEXT),
+                    .color(tc.text),
             );
             ui.label(
                 egui::RichText::new("点击下方按钮新建或打开一个项目")
-                    .color(AppleColors::TEXT_SECONDARY),
+                    .color(tc.text_secondary),
             );
             ui.add_space(24.0);
             ui.horizontal(|ui| {

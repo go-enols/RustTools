@@ -200,7 +200,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
     // 检查是否有项目或图像
     if app.current_project.is_none() && state.images.is_empty() {
-        show_empty_state(ui, state);
+        show_empty_state(ui, state, &tc);
         return;
     }
 
@@ -929,13 +929,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             .color(tc.text),
                     );
                     ui.add_space(4.0);
-                    shortcut(ui, "Q / E", "上/下一张");
-                    shortcut(ui, "W", "抓手平移");
-                    shortcut(ui, "D", "矩形标注");
-                    shortcut(ui, "R", "撤销");
-                    shortcut(ui, "数字键", "切换类别");
-                    shortcut(ui, "滚轮", "缩放");
-                    shortcut(ui, "Delete", "删除选中");
+                    shortcut(ui, "Q / E", "上/下一张", &tc);
+                    shortcut(ui, "W", "抓手平移", &tc);
+                    shortcut(ui, "D", "矩形标注", &tc);
+                    shortcut(ui, "R", "撤销", &tc);
+                    shortcut(ui, "数字键", "切换类别", &tc);
+                    shortcut(ui, "滚轮", "缩放", &tc);
+                    shortcut(ui, "Delete", "删除选中", &tc);
                     ui.add_space(8.0);
 
                     if ui.button("删除选中").clicked() {
@@ -954,7 +954,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     });
 }
 
-fn show_empty_state(ui: &mut egui::Ui, state: &mut AnnotationState) {
+fn show_empty_state(ui: &mut egui::Ui, state: &mut AnnotationState, tc: &crate::theme::ThemeColors) {
     let available = ui.available_size();
     ui.allocate_ui_with_layout(
         egui::vec2(available.x, available.y * 0.7),
@@ -966,7 +966,7 @@ fn show_empty_state(ui: &mut egui::Ui, state: &mut AnnotationState) {
             let icon_size = 56.0;
             let icon_rect = ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover()).1.rect;
             let painter = ui.painter();
-            let stroke = egui::Stroke::new(2.0, AppleColors::TEXT_TERTIARY);
+            let stroke = egui::Stroke::new(2.0, tc.text_tertiary);
             let img_rect = icon_rect.shrink(6.0);
             // 主体
             painter.rect_stroke(img_rect, egui::CornerRadius::same(6), stroke, egui::StrokeKind::Inside);
@@ -985,11 +985,11 @@ fn show_empty_state(ui: &mut egui::Ui, state: &mut AnnotationState) {
                 egui::RichText::new("未打开项目或图像")
                     .size(18.0)
                     .strong()
-                    .color(AppleColors::TEXT),
+                    .color(tc.text),
             );
             ui.label(
                 egui::RichText::new("请先打开一个项目，或选择图像文件夹进行标注。")
-                    .color(AppleColors::TEXT_SECONDARY),
+                    .color(tc.text_secondary),
             );
             ui.add_space(16.0);
             if ui.button("打开图像文件夹").clicked() {
@@ -1027,7 +1027,7 @@ fn load_images_from_folder(state: &mut AnnotationState, folder: &std::path::Path
     }
 }
 
-fn shortcut(ui: &mut egui::Ui, key: &str, desc: &str) {
+fn shortcut(ui: &mut egui::Ui, key: &str, desc: &str, tc: &crate::theme::ThemeColors) {
     ui.horizontal(|ui| {
         ui.add_sized(
             [50.0, 18.0],
@@ -1041,7 +1041,7 @@ fn shortcut(ui: &mut egui::Ui, key: &str, desc: &str) {
         ui.label(
             egui::RichText::new(desc)
                 .size(11.0)
-                .color(AppleColors::TEXT_SECONDARY),
+                .color(tc.text_secondary),
         );
     });
 }

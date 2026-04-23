@@ -228,7 +228,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     ui.selectable_value(&mut app.video_state.model_idx, i, *name);
                                 }
                             });
-                    });
+                    }, &tc);
                     ui.add_space(6.0);
 
                     // 置信度阈值
@@ -495,12 +495,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     }
 }
 
-fn config_row(ui: &mut egui::Ui, label: &str, mut add_control: impl FnMut(&mut egui::Ui)) {
+fn config_row(ui: &mut egui::Ui, label: &str, mut add_control: impl FnMut(&mut egui::Ui), tc: &crate::theme::ThemeColors) {
     ui.horizontal(|ui| {
         ui.add_sized(
             [50.0, 20.0],
             egui::Label::new(
-                egui::RichText::new(label).color(AppleColors::TEXT_SECONDARY).size(13.0),
+                egui::RichText::new(label).color(tc.text_secondary).size(13.0),
             ),
         );
         add_control(ui);

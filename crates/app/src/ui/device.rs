@@ -54,28 +54,28 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     );
                     ui.add_space(12.0);
 
-                    info_grid(ui, "python_env", |ui| {
-                        row(ui, "Python 状态:", |ui| {
+                    info_grid(ui, "python_env", &tc, |ui| {
+                        row(ui, "Python 状态:", &tc, |ui| {
                             if app.python_env_status.python_available {
                                 ui.colored_label(AppleColors::SUCCESS, "可用");
                             } else {
                                 ui.colored_label(AppleColors::DANGER, "不可用");
                             }
                         });
-                        row(ui, "Python 版本:", |ui| {
+                        row(ui, "Python 版本:", &tc, |ui| {
                             ui.label(app.python_env_status.python_version.as_deref().unwrap_or("未安装"));
                         });
-                        row(ui, "PyTorch 状态:", |ui| {
+                        row(ui, "PyTorch 状态:", &tc, |ui| {
                             if app.python_env_status.torch_available {
                                 ui.colored_label(AppleColors::SUCCESS, "已安装");
                             } else {
                                 ui.colored_label(AppleColors::DANGER, "未安装");
                             }
                         });
-                        row(ui, "PyTorch 版本:", |ui| {
+                        row(ui, "PyTorch 版本:", &tc, |ui| {
                             ui.label(app.python_env_status.torch_version.as_deref().unwrap_or("未安装"));
                         });
-                        row(ui, "CUDA 状态:", |ui| {
+                        row(ui, "CUDA 状态:", &tc, |ui| {
                             if app.python_env_status.cuda_available {
                                 ui.colored_label(AppleColors::SUCCESS, "可用");
                             } else {
@@ -83,7 +83,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             }
                         });
                         if let Some(ref conda) = app.python_env_status.conda_env_name {
-                            row(ui, "Conda 环境:", |ui| { ui.label(conda); });
+                            row(ui, "Conda 环境:", &tc, |ui| { ui.label(conda); });
                         }
                     });
 
@@ -106,15 +106,15 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     );
                     ui.add_space(12.0);
 
-                    info_grid(ui, "system_info", |ui| {
-                        row(ui, "操作系统:", |ui| { ui.label(std::env::consts::OS); });
-                        row(ui, "架构:", |ui| { ui.label(std::env::consts::ARCH); });
-                        row(ui, "CPU 型号:", |ui| { ui.label(&state.cpu_model); });
-                        row(ui, "逻辑核心数:", |ui| {
+                    info_grid(ui, "system_info", &tc, |ui| {
+                        row(ui, "操作系统:", &tc, |ui| { ui.label(std::env::consts::OS); });
+                        row(ui, "架构:", &tc, |ui| { ui.label(std::env::consts::ARCH); });
+                        row(ui, "CPU 型号:", &tc, |ui| { ui.label(&state.cpu_model); });
+                        row(ui, "逻辑核心数:", &tc, |ui| {
                             ui.label(format!("{}", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)));
                         });
-                        row(ui, "RustTools 版本:", |ui| { ui.label(env!("CARGO_PKG_VERSION")); });
-                        row(ui, "egui 版本:", |ui| { ui.label("0.34"); });
+                        row(ui, "RustTools 版本:", &tc, |ui| { ui.label(env!("CARGO_PKG_VERSION")); });
+                        row(ui, "egui 版本:", &tc, |ui| { ui.label("0.34"); });
                     });
                 });
             },
@@ -138,7 +138,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                     if let Some(ref gpus) = state.gpu_info {
                         if gpus.is_empty() {
-                            empty_state(ui, "", "未检测到 CUDA GPU", "系统将使用 CPU 进行推理和训练。");
+                            empty_state(ui, "", "未检测到 CUDA GPU", "系统将使用 CPU 进行推理和训练。", &tc);
                         } else {
                             for (i, gpu) in gpus.iter().enumerate() {
                                 if i > 0 {
@@ -152,12 +152,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 );
                                 ui.add_space(8.0);
 
-                                info_grid(ui, &format!("gpu_{}", i), |ui| {
-                                    row(ui, "型号:", |ui| { ui.label(&gpu.name); });
-                                    row(ui, "显存总量:", |ui| {
+                                info_grid(ui, &format!("gpu_{}", i), &tc, |ui| {
+                                    row(ui, "型号:", &tc, |ui| { ui.label(&gpu.name); });
+                                    row(ui, "显存总量:", &tc, |ui| {
                                         ui.label(format!("{:.1} GB", gpu.total_memory_mb as f64 / 1024.0));
                                     });
-                                    row(ui, "显存使用:", |ui| {
+                                    row(ui, "显存使用:", &tc, |ui| {
                                         let used_pct = if gpu.total_memory_mb > 0 {
                                             gpu.used_memory_mb as f32 / gpu.total_memory_mb as f32
                                         } else {
@@ -172,8 +172,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                             );
                                         });
                                     });
-                                    row(ui, "CUDA 版本:", |ui| { ui.label(&gpu.cuda_version); });
-                                    row(ui, "cuDNN 版本:", |ui| { ui.label(&gpu.cudnn_version); });
+                                    row(ui, "CUDA 版本:", &tc, |ui| { ui.label(&gpu.cuda_version); });
+                                    row(ui, "cuDNN 版本:", &tc, |ui| { ui.label(&gpu.cudnn_version); });
                                 });
                             }
                         }
@@ -190,6 +190,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             "",
                             "未检测到 CUDA",
                             "Python 环境未就绪，无法检测 GPU 详情。",
+                            &tc,
                         );
                         ui.add_space(8.0);
                         ui.label(
@@ -226,11 +227,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     );
                     ui.add_space(12.0);
 
-                    info_grid(ui, "cpu_info", |ui| {
-                        row(ui, "逻辑核心数:", |ui| {
+                    info_grid(ui, "cpu_info", &tc, |ui| {
+                        row(ui, "逻辑核心数:", &tc, |ui| {
                             ui.label(format!("{}", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)));
                         });
-                        row(ui, "计算模式:", |ui| {
+                        row(ui, "计算模式:", &tc, |ui| {
                             if app.python_env_status.cuda_available {
                                 ui.colored_label(AppleColors::SUCCESS, "GPU 加速");
                             } else {
@@ -244,27 +245,27 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     });
 }
 
-fn info_grid(ui: &mut egui::Ui, id: &str, add_rows: impl FnOnce(&mut egui::Ui)) {
+fn info_grid(ui: &mut egui::Ui, id: &str, _tc: &crate::theme::ThemeColors, add_rows: impl FnOnce(&mut egui::Ui)) {
     egui::Grid::new(ui.id().with(id))
         .num_columns(2)
         .spacing([20.0, 10.0])
         .show(ui, add_rows);
 }
 
-fn row(ui: &mut egui::Ui, label: &str, mut add_value: impl FnMut(&mut egui::Ui)) {
-    ui.label(egui::RichText::new(label).color(AppleColors::TEXT_SECONDARY));
+fn row(ui: &mut egui::Ui, label: &str, tc: &crate::theme::ThemeColors, mut add_value: impl FnMut(&mut egui::Ui)) {
+    ui.label(egui::RichText::new(label).color(tc.text_secondary));
     add_value(ui);
     ui.end_row();
 }
 
-fn empty_state(ui: &mut egui::Ui, _icon: &str, title: &str, desc: &str) {
+fn empty_state(ui: &mut egui::Ui, _icon: &str, title: &str, desc: &str, tc: &crate::theme::ThemeColors) {
     ui.vertical_centered(|ui| {
         ui.add_space(20.0);
         // 绘制芯片/设备轮廓图标
         let icon_size = 40.0;
         let icon_rect = ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover()).1.rect;
         let painter = ui.painter();
-        let stroke = egui::Stroke::new(1.5, AppleColors::TEXT_TERTIARY.gamma_multiply(0.5));
+        let stroke = egui::Stroke::new(1.5, tc.text_tertiary.gamma_multiply(0.5));
         let body = icon_rect.shrink(4.0);
         painter.rect_stroke(body, egui::CornerRadius::same(4), stroke, egui::StrokeKind::Inside);
         painter.circle_stroke(body.center(), body.width().min(body.height()) * 0.2, stroke);
@@ -272,8 +273,8 @@ fn empty_state(ui: &mut egui::Ui, _icon: &str, title: &str, desc: &str) {
         painter.line_segment([body.center() + egui::vec2(0.0, -6.0), body.center() + egui::vec2(0.0, 6.0)], stroke);
 
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(title).size(14.0).strong().color(AppleColors::TEXT));
-        ui.label(egui::RichText::new(desc).color(AppleColors::TEXT_SECONDARY));
+        ui.label(egui::RichText::new(title).size(14.0).strong().color(tc.text));
+        ui.label(egui::RichText::new(desc).color(tc.text_secondary));
         ui.add_space(8.0);
     });
 }

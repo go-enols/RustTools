@@ -50,17 +50,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             let status = &app.python_env_status;
             egui::Grid::new("hub_env_grid").num_columns(3).spacing([24.0, 6.0]).show(ui, |ui| {
                 // Row: Python
-                hub_env_item(ui, "Python", status.python_available, status.python_version.as_deref().unwrap_or("未安装"));
+                hub_env_item(ui, "Python", status.python_available, status.python_version.as_deref().unwrap_or("未安装"), &tc);
                 ui.end_row();
                 // Row: PyTorch
                 let torch_text = if status.torch_available {
                     status.torch_version.as_deref().unwrap_or("已安装")
                 } else { "未安装" };
-                hub_env_item(ui, "PyTorch", status.torch_available, torch_text);
+                hub_env_item(ui, "PyTorch", status.torch_available, torch_text, &tc);
                 ui.end_row();
                 // Row: CUDA
                 let cuda_text = if status.cuda_available { "可用" } else { "未检测" };
-                hub_env_item(ui, "CUDA", status.cuda_available, cuda_text);
+                hub_env_item(ui, "CUDA", status.cuda_available, cuda_text, &tc);
                 ui.end_row();
             });
 
@@ -107,11 +107,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 let scan = scan_project_contents(project);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
-                    hub_stat(ui, "训练图像", &format!("{}", scan.train_images), AppleColors::PRIMARY);
-                    hub_stat(ui, "验证图像", &format!("{}", scan.val_images), AppleColors::WARNING);
-                    hub_stat(ui, "标注数", &format!("{}", scan.total_annotations), AppleColors::SUCCESS);
-                    hub_stat(ui, "类别", &format!("{}", project.classes.len()), AppleColors::PURPLE);
-                    hub_stat(ui, "模型", &format!("{}", scan.model_count), AppleColors::TEAL);
+                    hub_stat(ui, "训练图像", &format!("{}", scan.train_images), AppleColors::PRIMARY, &tc);
+                    hub_stat(ui, "验证图像", &format!("{}", scan.val_images), AppleColors::WARNING, &tc);
+                    hub_stat(ui, "标注数", &format!("{}", scan.total_annotations), AppleColors::SUCCESS, &tc);
+                    hub_stat(ui, "类别", &format!("{}", project.classes.len()), AppleColors::PURPLE, &tc);
+                    hub_stat(ui, "模型", &format!("{}", scan.model_count), AppleColors::TEAL, &tc);
                 });
 
                 ui.add_space(8.0);
@@ -177,18 +177,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     });
 }
 
-fn hub_env_item(ui: &mut egui::Ui, label: &str, ok: bool, value: &str) {
+fn hub_env_item(ui: &mut egui::Ui, label: &str, ok: bool, value: &str, tc: &crate::theme::ThemeColors) {
     let color = if ok { AppleColors::SUCCESS } else { AppleColors::DANGER };
-    ui.label(egui::RichText::new(label).size(11.0).color(AppleColors::TEXT_SECONDARY));
+    ui.label(egui::RichText::new(label).size(11.0).color(tc.text_secondary));
     let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
     ui.painter().circle_filled(dot_rect.center(), 3.5, color);
     ui.label(egui::RichText::new(value).size(11.0).color(color));
 }
 
-fn hub_stat(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32) {
+fn hub_stat(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32, tc: &crate::theme::ThemeColors) {
     ui.vertical(|ui| {
         ui.label(egui::RichText::new(value).size(16.0).strong().color(color));
-        ui.label(egui::RichText::new(label).size(10.0).color(AppleColors::TEXT_SECONDARY));
+        ui.label(egui::RichText::new(label).size(10.0).color(tc.text_secondary));
     });
 }
 
@@ -266,6 +266,7 @@ fn module_entry_card(
     let hovered = response.hovered();
     let painter = ui.painter();
 
+    let tc = app.colors();
     let (brand, _) = module_gradient(route);
     let label = route.to_string();
 
@@ -274,18 +275,18 @@ fn module_entry_card(
         painter.rect_filled(
             rect.expand(4.0),
             egui::CornerRadius::same(16),
-            AppleColors::SHADOW_HOVER,
+            tc.shadow_hover,
         );
     } else {
         painter.rect_filled(
             rect.translate(egui::vec2(0.0, 2.0)),
             egui::CornerRadius::same(14),
-            AppleColors::SHADOW,
+            tc.shadow,
         );
     }
 
     // Card background
-    painter.rect_filled(rect, egui::CornerRadius::same(14), AppleColors::SURFACE);
+    painter.rect_filled(rect, egui::CornerRadius::same(14), tc.surface);
 
     // Top accent bar
     let top_bar = egui::Rect::from_min_size(
@@ -295,7 +296,7 @@ fn module_entry_card(
     painter.rect_filled(top_bar, egui::CornerRadius::same(2), brand);
 
     // Border
-    let border_color = if hovered { brand } else { AppleColors::BORDER };
+    let border_color = if hovered { brand } else { tc.border };
     painter.rect_stroke(
         rect,
         egui::CornerRadius::same(14),
@@ -318,7 +319,7 @@ fn module_entry_card(
     painter.circle_filled(icon_rect.center(), icon_size * 0.5, icon_bg);
 
     // Draw geometric icon
-    let icon_color = if hovered { AppleColors::SURFACE } else { brand };
+    let icon_color = if hovered { tc.surface } else { brand };
     crate::ui::icons::draw_nav_icon(painter, icon_rect.shrink(10.0), route, icon_color);
 
     // Title
@@ -328,7 +329,7 @@ fn module_entry_card(
         egui::Align2::CENTER_TOP,
         label,
         egui::FontId::new(15.0, egui::FontFamily::Proportional),
-        AppleColors::TEXT,
+        tc.text,
     );
 
     // Description
@@ -346,7 +347,7 @@ fn module_entry_card(
         egui::Align2::CENTER_TOP,
         desc,
         egui::FontId::new(12.0, egui::FontFamily::Proportional),
-        AppleColors::TEXT_SECONDARY,
+        tc.text_secondary,
     );
 
     if response.clicked() {

@@ -111,20 +111,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     ui.selectable_value(&mut app.training_state.base_model_idx, i, *name);
                                 }
                             });
-                    });
+                    }, &tc);
                     config_row(ui, "训练轮数:", |ui| {
                         ui.add(egui::DragValue::new(&mut app.training_state.epochs).speed(1).range(1..=1000));
                         ui.label("epochs");
-                    });
+                    }, &tc);
                     config_row(ui, "批次大小:", |ui| {
                         ui.add(egui::DragValue::new(&mut app.training_state.batch_size).speed(1).range(1..=128));
-                    });
+                    }, &tc);
                     config_row(ui, "图像尺寸:", |ui| {
                         ui.add(egui::DragValue::new(&mut app.training_state.image_size).speed(32).range(320..=1280));
-                    });
+                    }, &tc);
                     config_row(ui, "初始学习率:", |ui| {
                         ui.add(egui::DragValue::new(&mut app.training_state.learning_rate).speed(0.001).range(0.0001..=0.1));
-                    });
+                    }, &tc);
                     config_row(ui, "优化器:", |ui| {
                         let opt_name = OPTIMIZERS.get(app.training_state.optimizer_idx).unwrap_or(&OPTIMIZERS[0]);
                         egui::ComboBox::from_id_salt("optimizer")
@@ -135,7 +135,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     ui.selectable_value(&mut app.training_state.optimizer_idx, i, *name);
                                 }
                             });
-                    });
+                    }, &tc);
                     config_row(ui, "计算设备:", |ui| {
                         let device = if app.python_env_status.cuda_available {
                             "GPU (CUDA)"
@@ -143,11 +143,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             "CPU"
                         };
                         ui.label(device);
-                    });
+                    }, &tc);
                     ui.horizontal(|ui| {
                         config_row(ui, "数据加载线程:", |ui| {
                             ui.add(egui::DragValue::new(&mut app.training_state.workers).speed(1).range(0..=32));
-                        });
+                        }, &tc);
                         ui.label(
                             egui::RichText::new("(Linux 建议 0，避免多进程死锁)")
                                 .size(11.0)
@@ -167,11 +167,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         ui.add_space(4.0);
                         config_row(ui, "预热轮数:", |ui| {
                             ui.add(egui::DragValue::new(&mut app.training_state.warmup).speed(0.5).range(0.0..=10.0));
-                        });
+                        }, &tc);
                         config_row(ui, "保存周期:", |ui| {
                             ui.add(egui::DragValue::new(&mut app.training_state.save_period).speed(1).range(-1..=100));
                             ui.label("(-1=仅最后)");
-                        });
+                        }, &tc);
                     });
 
                     ui.add_space(16.0);
@@ -325,11 +325,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 app.tokio_rt.block_on(app.trainer_service.get_status(tid)).map(|s| s.metrics)
                             } else { None }.unwrap_or_default();
                             metric_mini_card(ui, "Box Loss",
-                                &format!("{:.3}", metrics.train_box_loss), AppleColors::PRIMARY);
+                                &format!("{:.3}", metrics.train_box_loss), AppleColors::PRIMARY, &tc);
                             metric_mini_card(ui, "Cls Loss",
-                                &format!("{:.3}", metrics.train_cls_loss), AppleColors::WARNING);
+                                &format!("{:.3}", metrics.train_cls_loss), AppleColors::WARNING, &tc);
                             metric_mini_card(ui, "mAP@50",
-                                &format!("{:.3}", metrics.map50), AppleColors::SUCCESS);
+                                &format!("{:.3}", metrics.map50), AppleColors::SUCCESS, &tc);
                         });
                     } else {
                         // 未训练空状态
@@ -397,6 +397,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 }
 
 fn show_no_project(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let available = ui.available_size();
     ui.allocate_ui_with_layout(
         egui::vec2(available.x, available.y * 0.6),
@@ -407,7 +408,7 @@ fn show_no_project(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             let icon_size = 64.0;
             let icon_rect = ui.allocate_exact_size(egui::vec2(icon_size, icon_size), egui::Sense::hover()).1.rect;
             let painter = ui.painter();
-            let stroke = egui::Stroke::new(2.0, AppleColors::TEXT_TERTIARY);
+            let stroke = egui::Stroke::new(2.0, tc.text_tertiary);
             let chart = icon_rect.shrink(8.0);
             // 外框
             painter.rect_stroke(chart, egui::CornerRadius::same(6), stroke, egui::StrokeKind::Inside);
@@ -420,13 +421,13 @@ fn show_no_project(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             painter.line_segment([p2, p3], stroke);
             painter.line_segment([p3, p4], stroke);
             // 终点圆点
-            painter.circle_filled(p4, 3.0, AppleColors::TEXT_TERTIARY);
+            painter.circle_filled(p4, 3.0, tc.text_tertiary);
 
             ui.add_space(16.0);
-            ui.label(egui::RichText::new("未打开项目").size(18.0).strong().color(AppleColors::TEXT));
-            ui.label(egui::RichText::new("训练需要选择一个包含数据集的 YOLO 项目。").color(AppleColors::TEXT_SECONDARY));
+            ui.label(egui::RichText::new("未打开项目").size(18.0).strong().color(tc.text));
+            ui.label(egui::RichText::new("训练需要选择一个包含数据集的 YOLO 项目。").color(tc.text_secondary));
             ui.add_space(16.0);
-            let btn = egui::Button::new(egui::RichText::new("打开项目").color(AppleColors::SURFACE).strong())
+            let btn = egui::Button::new(egui::RichText::new("打开项目").color(tc.surface).strong())
                 .fill(AppleColors::PRIMARY)
                 .corner_radius(egui::CornerRadius::same(8));
             if ui.add_sized([100.0, 36.0], btn).clicked() {
@@ -445,12 +446,12 @@ fn show_no_project(ui: &mut egui::Ui, app: &mut RustToolsApp) {
     );
 }
 
-fn config_row(ui: &mut egui::Ui, label: &str, mut add_control: impl FnMut(&mut egui::Ui)) {
+fn config_row(ui: &mut egui::Ui, label: &str, mut add_control: impl FnMut(&mut egui::Ui), tc: &crate::theme::ThemeColors) {
     ui.horizontal(|ui| {
         ui.add_sized(
             [90.0, 20.0],
             egui::Label::new(
-                egui::RichText::new(label).color(AppleColors::TEXT_SECONDARY).size(13.0),
+                egui::RichText::new(label).color(tc.text_secondary).size(13.0),
             ),
         );
         add_control(ui);
@@ -521,7 +522,7 @@ fn start_training(app: &mut RustToolsApp) {
     }
 }
 
-fn metric_mini_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32) {
+fn metric_mini_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Color32, tc: &crate::theme::ThemeColors) {
     ui.vertical(|ui| {
         let (rect, _response) = ui.allocate_exact_size(egui::vec2(70.0, 48.0), egui::Sense::hover());
         let painter = ui.painter();
@@ -539,7 +540,7 @@ fn metric_mini_card(ui: &mut egui::Ui, label: &str, value: &str, color: egui::Co
             egui::Align2::CENTER_CENTER,
             label,
             egui::FontId::new(9.0, egui::FontFamily::Proportional),
-            AppleColors::TEXT_SECONDARY,
+            tc.text_secondary,
         );
     });
 }
