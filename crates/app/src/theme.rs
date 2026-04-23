@@ -110,6 +110,28 @@ pub fn module_gradient(route: crate::app::Route) -> (egui::Color32, egui::Color3
 }
 
 // ============================================================================
+// Dark Color System
+// ============================================================================
+
+pub struct DarkColors;
+
+impl DarkColors {
+    pub const BG: egui::Color32 = egui::Color32::from_rgb(0, 0, 0);               // #000000
+    pub const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(28, 28, 30);       // #1C1C1E
+    pub const SURFACE: egui::Color32 = egui::Color32::from_rgb(28, 28, 30);       // #1C1C1E
+    pub const SURFACE_HOVER: egui::Color32 = egui::Color32::from_rgb(44, 44, 46); // #2C2C2E
+    pub const GLASS: egui::Color32 = egui::Color32::from_rgba_premultiplied(30, 30, 30, 200);
+    pub const GLASS_STRONG: egui::Color32 = egui::Color32::from_rgba_premultiplied(40, 40, 40, 230);
+    pub const TEXT: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);       // #FFFFFF
+    pub const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(142, 142, 147); // #8E8E93
+    pub const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(72, 72, 74);  // #48484A
+    pub const BORDER: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 255, 255, 15);
+    pub const SHADOW: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 40);
+    pub const SHADOW_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(0, 0, 0, 60);
+    pub const INNER_HIGHLIGHT: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 255, 255, 30);
+}
+
+// ============================================================================
 // Theme Application
 // ============================================================================
 
@@ -220,6 +242,124 @@ pub fn apply_light_theme(ctx: &egui::Context) {
     style.spacing.interact_size = egui::vec2(40.0, 20.0);
 
     ctx.set_global_style(style);
+}
+
+pub fn apply_dark_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+
+    // Core backgrounds
+    visuals.panel_fill = DarkColors::BG;
+    visuals.faint_bg_color = DarkColors::BG_DEEP;
+    visuals.extreme_bg_color = DarkColors::BG_DEEP;
+    visuals.code_bg_color = DarkColors::BG_DEEP;
+    visuals.window_fill = DarkColors::GLASS;
+    visuals.window_stroke = egui::Stroke::new(1.0, DarkColors::BORDER);
+
+    // Selection & hyperlinks
+    visuals.selection.bg_fill = AppleColors::PRIMARY;
+    visuals.selection.stroke = egui::Stroke::new(1.0, DarkColors::SURFACE);
+    visuals.hyperlink_color = AppleColors::PRIMARY;
+
+    // Widgets - noninteractive
+    visuals.widgets.noninteractive.bg_fill = DarkColors::BG_DEEP;
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, DarkColors::BORDER);
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, DarkColors::TEXT);
+    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(10);
+
+    // Widgets - inactive
+    visuals.widgets.inactive.bg_fill = DarkColors::SURFACE;
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, DarkColors::BORDER);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, DarkColors::TEXT);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(10);
+
+    // Widgets - hovered
+    visuals.widgets.hovered.bg_fill = DarkColors::SURFACE_HOVER;
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, AppleColors::PRIMARY);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, DarkColors::TEXT);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(10);
+    visuals.widgets.hovered.expansion = 2.0;
+
+    // Widgets - active
+    visuals.widgets.active.bg_fill = DarkColors::BG_DEEP;
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.5, AppleColors::PRIMARY);
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, DarkColors::TEXT);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(10);
+
+    // Widgets - open
+    visuals.widgets.open.bg_fill = DarkColors::SURFACE;
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(1.0, AppleColors::PRIMARY);
+    visuals.widgets.open.fg_stroke = egui::Stroke::new(1.0, DarkColors::TEXT);
+    visuals.widgets.open.corner_radius = egui::CornerRadius::same(10);
+
+    // Special widgets
+    visuals.widgets.active.bg_fill = AppleColors::PRIMARY;
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, DarkColors::SURFACE);
+
+    // Rounding
+    visuals.window_corner_radius = egui::CornerRadius::same(16);
+    visuals.menu_corner_radius = egui::CornerRadius::same(12);
+    visuals.button_frame = true;
+    visuals.collapsing_header_frame = true;
+
+    // Shadows (subtle in dark mode)
+    visuals.window_shadow = egui::epaint::Shadow {
+        color: DarkColors::SHADOW,
+        offset: [0, 8],
+        blur: 24,
+        spread: 0,
+    };
+    visuals.popup_shadow = egui::epaint::Shadow {
+        color: DarkColors::SHADOW,
+        offset: [0, 4],
+        blur: 16,
+        spread: 0,
+    };
+
+    // Text colors
+    visuals.override_text_color = Some(DarkColors::TEXT);
+    visuals.warn_fg_color = AppleColors::WARNING;
+    visuals.error_fg_color = AppleColors::DANGER;
+
+    ctx.set_visuals(visuals);
+
+    // Style (same as light)
+    let mut style = (*ctx.global_style()).clone();
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::new(24.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Body,
+        egui::FontId::new(14.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::new(14.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::new(12.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::new(13.0, egui::FontFamily::Monospace),
+    );
+    style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+    style.spacing.window_margin = egui::Margin::same(16);
+    style.spacing.button_padding = egui::vec2(16.0, 8.0);
+    style.spacing.indent = 16.0;
+    style.spacing.interact_size = egui::vec2(40.0, 20.0);
+
+    ctx.set_global_style(style);
+}
+
+/// 切换主题并应用到上下文
+pub fn toggle_theme(ctx: &egui::Context, dark: bool) {
+    if dark {
+        apply_dark_theme(ctx);
+    } else {
+        apply_light_theme(ctx);
+    }
 }
 
 // ============================================================================

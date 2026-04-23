@@ -8,3 +8,4 @@ pub mod settings;
 pub mod training;
 pub mod video;
 pub mod welcome;
+pub mod gpu_preview;

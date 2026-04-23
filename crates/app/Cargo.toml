@@ -11,7 +11,12 @@ description = "RustTools - YOLO training and inference tool"
 # UI Framework
 eframe = { version = "0.34", features = ["wgpu"] }
 egui = "0.34"
+egui-wgpu = "0.34"
 egui_extras = { version = "0.34", features = ["image"] }
+
+# GPU
+wgpu = "29"
+bytemuck = "1"
 
 # File dialogs
 rfd = "0.15"

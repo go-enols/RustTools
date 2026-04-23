@@ -5030,10 +5030,12 @@ dependencies = [
  "base64",
  "burn",
  "burn-ndarray",
+ "bytemuck",
  "chrono",
  "dirs 5.0.1",
  "eframe",
  "egui",
+ "egui-wgpu",
  "egui_extras",
  "env_logger",
  "futures-util",
@@ -5058,6 +5060,7 @@ dependencies = [
  "tokio-stream",
  "tract-onnx",
  "webp",
+ "wgpu",
  "xcap",
 ]
 

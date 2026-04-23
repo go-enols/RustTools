@@ -95,6 +95,7 @@ pub struct RustToolsApp {
     #[allow(dead_code)]
     pub trainer_service: TrainerService,
     pub current_training_id: Option<String>,
+    pub dark_mode: bool,
 }
 
 impl RustToolsApp {
@@ -124,6 +125,7 @@ impl RustToolsApp {
             device_info_state: DeviceInfoState::default(),
             trainer_service,
             current_training_id: None,
+            dark_mode: false,
         }
     }
 
@@ -149,9 +151,14 @@ impl RustToolsApp {
     }
 
     fn show_nav_button(&mut self, ui: &mut egui::Ui, route: Route) {
-        use crate::theme::{AppleColors, module_color};
+        use crate::theme::{AppleColors, DarkColors, module_color};
         let selected = self.route == route;
         let brand = module_color(route);
+        let (bg_deep, surface, text, text_secondary) = if self.dark_mode {
+            (DarkColors::BG_DEEP, DarkColors::SURFACE, DarkColors::TEXT, DarkColors::TEXT_SECONDARY)
+        } else {
+            (AppleColors::BG_DEEP, AppleColors::SURFACE, AppleColors::TEXT, AppleColors::TEXT_SECONDARY)
+        };
 
         let available_w = ui.available_width();
         let (rect, response) = ui.allocate_exact_size(
@@ -165,7 +172,7 @@ impl RustToolsApp {
         if selected {
             painter.rect_filled(rect, egui::CornerRadius::same(10), brand.gamma_multiply(0.08));
         } else if hovered {
-            painter.rect_filled(rect, egui::CornerRadius::same(10), AppleColors::BG_DEEP);
+            painter.rect_filled(rect, egui::CornerRadius::same(10), bg_deep);
         }
 
         // 左侧指示条：选中或悬停时显示
@@ -189,12 +196,12 @@ impl RustToolsApp {
         painter.circle_filled(icon_rect.center(), icon_size * 0.5, icon_bg);
 
         // 绘制几何图标
-        let icon_color = if selected { AppleColors::SURFACE } else { brand };
+        let icon_color = if selected { surface } else { brand };
         crate::ui::icons::draw_nav_icon(painter, icon_rect.shrink(6.0), route, icon_color);
 
         // 文字
         let text_pos = rect.min + egui::vec2(icon_size + 28.0, rect.height() * 0.5);
-        let text_color = if selected { AppleColors::TEXT } else { AppleColors::TEXT_SECONDARY };
+        let text_color = if selected { text } else { text_secondary };
         painter.text(
             text_pos,
             egui::Align2::LEFT_CENTER,
@@ -214,17 +221,23 @@ impl eframe::App for RustToolsApp {
         // 桌面捕获实时预览已移至 desktop.rs 的 show() 中，不再使用独立 overlay viewport
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx();
-        use crate::theme::AppleColors;
-        crate::theme::apply_light_theme(ctx);
+        use crate::theme::{AppleColors, DarkColors};
+        crate::theme::toggle_theme(ctx, self.dark_mode);
+
+        let (bg, surface, text, text_secondary) = if self.dark_mode {
+            (DarkColors::BG, DarkColors::SURFACE, DarkColors::TEXT, DarkColors::TEXT_SECONDARY)
+        } else {
+            (AppleColors::BG, AppleColors::SURFACE, AppleColors::TEXT, AppleColors::TEXT_SECONDARY)
+        };
 
         if self.route == Route::Welcome {
             // ── 欢迎页：全屏独立展示，无侧边栏 ──
             egui::CentralPanel::default()
                 .frame(
                     egui::Frame::new()
-                        .fill(AppleColors::BG)
+                        .fill(bg)
                         .inner_margin(egui::Margin::same(0)),
                 )
                 .show_inside(ui, |ui| {
@@ -235,7 +248,7 @@ impl eframe::App for RustToolsApp {
             egui::Panel::left("nav_panel")
                 .exact_size(200.0)
                 .resizable(false)
-                .frame(egui::Frame::new().fill(AppleColors::SURFACE))
+                .frame(egui::Frame::new().fill(surface))
                 .show_inside(ui, |ui| {
                     ui.add_space(20.0);
                     // App logo / title
@@ -245,11 +258,11 @@ impl eframe::App for RustToolsApp {
                         let painter = ui.painter();
                         painter.rect_filled(logo_rect, egui::CornerRadius::same(8), AppleColors::PRIMARY);
                         let inner = logo_rect.shrink(logo_size * 0.3);
-                        painter.rect_filled(inner, egui::CornerRadius::same(3), AppleColors::SURFACE);
+                        painter.rect_filled(inner, egui::CornerRadius::same(3), surface);
                         ui.add_space(10.0);
                         ui.vertical(|ui| {
-                            ui.label(egui::RichText::new("RustTools").size(16.0).strong().color(AppleColors::TEXT));
-                            ui.label(egui::RichText::new("开发工具箱").size(11.0).color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("RustTools").size(16.0).strong().color(text));
+                            ui.label(egui::RichText::new("开发工具箱").size(11.0).color(text_secondary));
                         });
                     });
                     ui.add_space(24.0);
@@ -270,7 +283,14 @@ impl eframe::App for RustToolsApp {
                     });
 
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                        ui.add_space(8.0);
+                        // 主题切换按钮
+                        ui.horizontal(|ui| {
+                            let theme_btn = if self.dark_mode { "☀ 浅色" } else { "🌙 深色" };
+                            if ui.button(egui::RichText::new(theme_btn).size(11.0)).clicked() {
+                                self.dark_mode = !self.dark_mode;
+                            }
+                        });
+                        ui.add_space(4.0);
                         let env_ok = self.python_env_status.python_available;
                         ui.horizontal(|ui| {
                             crate::theme::status_indicator(ui, env_ok, if env_ok { "环境就绪" } else { "环境未就绪" });
@@ -283,7 +303,7 @@ impl eframe::App for RustToolsApp {
             egui::CentralPanel::default()
                 .frame(
                     egui::Frame::new()
-                        .fill(AppleColors::BG)
+                        .fill(bg)
                         .inner_margin(egui::Margin::same(20)),
                 )
                 .show_inside(ui, |ui| {
@@ -294,7 +314,7 @@ impl eframe::App for RustToolsApp {
                         Route::Annotation => crate::ui::annotation::show(ui, self),
                         Route::Training => crate::ui::training::show(ui, self),
                         Route::Video => crate::ui::video::show(ui, self),
-                        Route::Desktop => crate::ui::desktop::show(ui, self),
+                        Route::Desktop => crate::ui::desktop::show(ui, self, Some(frame)),
                         Route::Device => crate::ui::device::show(ui, self),
                         Route::Settings => crate::ui::settings::show(ui, self),
                     }

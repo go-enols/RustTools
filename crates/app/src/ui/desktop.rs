@@ -37,6 +37,8 @@ pub struct OverlayState {
     pub capture_region: CaptureRegion,
     /// 最新一帧画面（Arc<ColorImage> 零拷贝共享给主 UI texture.set()）
     pub frame_image: Option<std::sync::Arc<egui::ColorImage>>,
+    /// 最新一帧 BGRA 原始数据（供 wgpu PaintCallback 直接 upload）
+    pub frame_bgra: Option<std::sync::Arc<(Vec<u8>, u32, u32)>>,
     /// 帧版本号，主 UI 只在版本变化时更新 texture，避免重复 GPU 上传
     pub frame_version: u64,
 }
@@ -51,6 +53,7 @@ impl Default for OverlayState {
             detected_objects: 0,
             capture_region: CaptureRegion::default(),
             frame_image: None,
+            frame_bgra: None,
             frame_version: 0,
         }
     }
@@ -131,7 +134,7 @@ impl CaptureSource {
 
 const DESKTOP_MODELS: &[&str] = &["yolo11n.pt", "yolo11s.pt", "自定义模型..."];
 
-pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe::Frame>) {
     let state = &mut app.desktop_state;
 
     // 实时同步配置到共享状态
@@ -356,69 +359,128 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     let preview_rect = ui.available_rect_before_wrap();
 
                     // 尝试读取最新帧
-                    let (frame_opt, detections, region, frame_version) = {
+                    let (frame_image_opt, frame_bgra_opt, detections, region, frame_version) = {
                         let os = state.overlay_state.lock().unwrap();
-                        (os.frame_image.clone(), os.detections.clone(), os.capture_region, os.frame_version)
+                        (os.frame_image.clone(), os.frame_bgra.clone(), os.detections.clone(), os.capture_region, os.frame_version)
                     };
 
-                    if let Some(ref color_image_arc) = frame_opt {
-                        let [fw, fh] = color_image_arc.size;
-                        // 获取或创建 texture
-                        let texture = state.last_frame.get_or_insert_with(|| {
-                            ui.ctx().load_texture(
-                                "desktop_preview",
-                                egui::ColorImage::example(),
-                                egui::TextureOptions::LINEAR,
-                            )
-                        });
-                        // 只在 frame_version 变化时更新 texture，避免重复 GPU 上传
-                        // 使用 Arc::clone 零拷贝传递 ColorImage 所有权给 egui
-                        if frame_version != state.last_frame_version {
-                            texture.set(std::sync::Arc::clone(color_image_arc), egui::TextureOptions::LINEAR);
-                            state.last_frame_version = frame_version;
-                        }
-
-                        // 等比缩放显示
+                    // 计算画面显示参数（wgpu / egui 两条路径共用）
+                    let (fw, fh, display_rect, has_frame) = if let Some(ref bgra) = frame_bgra_opt {
+                        let (_, fw, fh) = &**bgra;
+                        let fw_f = *fw as f32;
+                        let fh_f = *fh as f32;
+                        let img_aspect = fw_f / fh_f.max(1.0);
+                        let rect_aspect = preview_rect.width() / preview_rect.height().max(1.0);
+                        let dr = if img_aspect > rect_aspect {
+                            let h = preview_rect.width() / img_aspect;
+                            egui::Rect::from_center_size(preview_rect.center(), egui::vec2(preview_rect.width(), h))
+                        } else {
+                            let w = preview_rect.height() * img_aspect;
+                            egui::Rect::from_center_size(preview_rect.center(), egui::vec2(w, preview_rect.height()))
+                        };
+                        (*fw, *fh, dr, true)
+                    } else if let Some(ref img) = frame_image_opt {
+                        let [fw, fh] = img.size;
                         let fw_f = fw as f32;
                         let fh_f = fh as f32;
                         let img_aspect = fw_f / fh_f.max(1.0);
                         let rect_aspect = preview_rect.width() / preview_rect.height().max(1.0);
-                        let display_rect = if img_aspect > rect_aspect {
+                        let dr = if img_aspect > rect_aspect {
                             let h = preview_rect.width() / img_aspect;
-                            egui::Rect::from_center_size(
-                                preview_rect.center(),
-                                egui::vec2(preview_rect.width(), h),
-                            )
+                            egui::Rect::from_center_size(preview_rect.center(), egui::vec2(preview_rect.width(), h))
                         } else {
                             let w = preview_rect.height() * img_aspect;
-                            egui::Rect::from_center_size(
-                                preview_rect.center(),
-                                egui::vec2(w, preview_rect.height()),
-                            )
+                            egui::Rect::from_center_size(preview_rect.center(), egui::vec2(w, preview_rect.height()))
                         };
+                        (fw as u32, fh as u32, dr, true)
+                    } else {
+                        (0, 0, preview_rect, false)
+                    };
 
-                        // 绘制画面
-                        ui.painter().image(
-                            texture.id(),
-                            display_rect,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
+                    // ── wgpu 直接渲染路径（优先）──
+                    let mut gpu_rendered = false;
+                    if has_frame {
+                        if let Some(eframe_frame) = frame {
+                            if let Some(render_state) = eframe_frame.wgpu_render_state() {
+                                // 注册 GpuPreview（只注册一次）
+                                let need_register = {
+                                    let renderer = render_state.renderer.read();
+                                    renderer.callback_resources.get::<crate::ui::gpu_preview::GpuPreview>().is_none()
+                                };
+                                if need_register {
+                                    let mut renderer = render_state.renderer.write();
+                                    let preview = crate::ui::gpu_preview::GpuPreview::new(
+                                        &render_state.device,
+                                        render_state.target_format,
+                                    );
+                                    renderer.callback_resources.insert(preview);
+                                }
+
+                                if let Some(ref bgra_arc) = frame_bgra_opt {
+                                    let callback = crate::ui::gpu_preview::GpuPreviewCallback {
+                                        frame: Some(std::sync::Arc::clone(bgra_arc)),
+                                        frame_wh: [fw, fh],
+                                    };
+                                    let paint_callback = egui_wgpu::Callback::new_paint_callback(preview_rect, callback);
+                                    ui.painter().add(paint_callback);
+                                    gpu_rendered = true;
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 回退到 egui texture 路径 ──
+                    if !gpu_rendered && has_frame {
+                        if let Some(ref color_image_arc) = frame_image_opt {
+                            let texture = state.last_frame.get_or_insert_with(|| {
+                                ui.ctx().load_texture(
+                                    "desktop_preview",
+                                    egui::ColorImage::example(),
+                                    egui::TextureOptions::LINEAR,
+                                )
+                            });
+                            if frame_version != state.last_frame_version {
+                                texture.set(std::sync::Arc::clone(color_image_arc), egui::TextureOptions::LINEAR);
+                                state.last_frame_version = frame_version;
+                            }
+                            ui.painter().image(
+                                texture.id(),
+                                display_rect,
+                                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                    }
+
+                    if !has_frame {
+                        // 无画面时显示占位
+                        ui.painter().rect_filled(
+                            preview_rect,
+                            egui::CornerRadius::same(8),
+                            AppleColors::BG_DEEP,
                         );
+                        ui.painter().text(
+                            preview_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            if state.is_capturing {
+                                "正在初始化捕获…"
+                            } else {
+                                "点击「开始捕获」以启动实时检测"
+                            },
+                            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+                            AppleColors::TEXT_SECONDARY,
+                        );
+                    }
 
-                        // 绘制检测框（映射到显示区域坐标）
+                    // ── 绘制检测框与边框（两条路径共用）──
+                    if has_frame {
                         if state.show_boxes {
-                            let scale_x = display_rect.width() / fw_f;
-                            let scale_y = display_rect.height() / fh_f;
+                            let scale_x = display_rect.width() / fw.max(1) as f32;
+                            let scale_y = display_rect.height() / fh.max(1) as f32;
                             for det in detections.iter() {
                                 let det_rect = egui::Rect::from_min_max(
-                                    egui::pos2(
-                                        display_rect.min.x + det.x1 * scale_x,
-                                        display_rect.min.y + det.y1 * scale_y,
-                                    ),
-                                    egui::pos2(
-                                        display_rect.min.x + det.x2 * scale_x,
-                                        display_rect.min.y + det.y2 * scale_y,
-                                    ),
+                                    egui::pos2(display_rect.min.x + det.x1 * scale_x, display_rect.min.y + det.y1 * scale_y),
+                                    egui::pos2(display_rect.min.x + det.x2 * scale_x, display_rect.min.y + det.y2 * scale_y),
                                 );
                                 ui.painter().rect_stroke(
                                     det_rect,
@@ -437,38 +499,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 }
                             }
                         }
-
-                        // 绘制捕获区域边框（相对画面）
                         if region.width > 0 && region.height > 0 {
-                            let border_rect = egui::Rect::from_min_max(
-                                egui::pos2(display_rect.min.x, display_rect.min.y),
-                                egui::pos2(display_rect.max.x, display_rect.max.y),
-                            );
                             ui.painter().rect_stroke(
-                                border_rect,
+                                display_rect,
                                 egui::CornerRadius::same(0),
                                 egui::Stroke::new(2.0, egui::Color32::RED),
                                 egui::StrokeKind::Inside,
                             );
                         }
-                    } else {
-                        // 无画面时显示占位
-                        ui.painter().rect_filled(
-                            preview_rect,
-                            egui::CornerRadius::same(8),
-                            AppleColors::BG_DEEP,
-                        );
-                        ui.painter().text(
-                            preview_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            if state.is_capturing {
-                                "正在初始化捕获…"
-                            } else {
-                                "点击「开始捕获」以启动实时检测"
-                            },
-                            egui::FontId::new(14.0, egui::FontFamily::Proportional),
-                            AppleColors::TEXT_SECONDARY,
-                        );
                     }
                 });
             },
@@ -623,6 +661,12 @@ fn start_capture(state: &mut DesktopPageState) {
                 }
             };
 
+            // 复制一份 BGRA 数据供 wgpu 直接 upload（设置 alpha=255）
+            let mut bgra_for_gpu = cropped.clone();
+            for pixel in bgra_for_gpu.chunks_exact_mut(4) {
+                pixel[3] = 255;
+            }
+
             // BGRA → egui Color32 供主 UI 直接显示（截屏线程预转换，主 UI 零开销）
             let preview_colors = bgra_to_color32(&cropped);
             let preview_size = [region.width as usize, region.height as usize];
@@ -658,6 +702,7 @@ fn start_capture(state: &mut DesktopPageState) {
                     pixels: preview_colors,
                 };
                 os.frame_image = Some(std::sync::Arc::new(color_image));
+                os.frame_bgra = Some(std::sync::Arc::new((bgra_for_gpu, region.width, region.height)));
                 os.frame_version += 1;
             }
 
