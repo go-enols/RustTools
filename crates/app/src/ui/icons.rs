@@ -3,7 +3,7 @@
 
 use eframe::egui;
 use crate::app::Route;
-use crate::theme::AppleColors;
+
 
 /// 绘制导航栏小图标（24x24 区域）
 pub fn draw_nav_icon(painter: &egui::Painter, rect: egui::Rect, route: Route, color: egui::Color32) {
@@ -122,6 +122,7 @@ pub fn draw_empty_folder(painter: &egui::Painter, rect: egui::Rect, color: egui:
     painter.rect_stroke(tab, egui::CornerRadius::same(4), stroke, egui::StrokeKind::Inside);
 }
 
+#[allow(dead_code)]
 pub fn draw_empty_image(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
     let stroke = egui::Stroke::new(2.0, color);
     let img_rect = rect.shrink(6.0);

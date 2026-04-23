@@ -311,7 +311,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             |ui| {
                 // 视频预览区域
                 compact_card_frame().show(ui, |ui| {
-                    let state = &mut app.video_state;
+                    let _state = &mut app.video_state;
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("视频预览")
@@ -511,7 +511,7 @@ fn start_video_inference(app: &mut RustToolsApp) {
     let model_idx = app.video_state.model_idx;
     let conf = app.video_state.confidence;
     let iou = app.video_state.iou_threshold;
-    let output_dir = app.video_state.output_dir.clone();
+    let _output_dir = app.video_state.output_dir.clone();
 
     app.video_state.is_processing = true;
     app.video_state.progress = 0.0;

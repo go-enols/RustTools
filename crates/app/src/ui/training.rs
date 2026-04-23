@@ -18,6 +18,7 @@ pub struct TrainingPageState {
     pub cos_lr: bool,
     pub warmup: f32,
     pub save_period: i32,
+    #[allow(dead_code)]
     pub is_training: bool,
     pub log_messages: Vec<String>,
     pub current_epoch: u32,

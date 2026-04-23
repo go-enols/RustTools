@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncBufReadExt, BufReader};
+
 
 // ============================================================================
 // 安装方案与配置类型
@@ -616,7 +616,7 @@ pub fn resolve_python_path() -> Option<String> {
     None
 }
 
-/// Cache for the resolved python path
+// Cache for the resolved python path
 thread_local! {
     static RESOLVED_PYTHON: std::cell::OnceCell<String> = std::cell::OnceCell::new();
 }

@@ -1,13 +1,14 @@
 use eframe::egui;
 use crate::app::RustToolsApp;
-use crate::services::env::{EnvReport, generate_env_report, env_status_summary};
-use crate::services::python_env::{get_env_status, UvManager, MirrorSource, InstallPlan, InstallProgress, InstallResult};
+use crate::services::env::{EnvReport, generate_env_report};
+use crate::services::python_env::{get_env_status, UvManager, MirrorSource, InstallPlan};
 use crate::theme::{AppleColors, card_frame, page_header};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Debug, Clone)]
 pub enum InstallState {
     Idle,
+    #[allow(dead_code)]
     Detecting,
     Installing,
     Success(String),

@@ -589,6 +589,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     });
 
                     let mut img_size = egui::Vec2::ZERO;
+                    #[allow(unused_assignments)]
                     let mut img_rect = egui::Rect::ZERO;
                     if let Some(idx) = state.selected_image_idx {
                         let path = state.images.get(idx).cloned();

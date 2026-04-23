@@ -3,10 +3,10 @@ use crate::services::python_env::resolved_python;
 use rand::Rng;
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, Mutex as TokioMutex, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio_stream::StreamExt;
 
 pub struct TrainerService {

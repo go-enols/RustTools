@@ -35,8 +35,8 @@ pub struct OverlayState {
     pub inference_ms: f32,
     pub detected_objects: usize,
     pub capture_region: CaptureRegion,
-    /// 最新一帧画面（已转为 egui Color32，Arc 避免 Mutex 内拷贝）
-    pub frame_colors: Option<(std::sync::Arc<Vec<egui::Color32>>, [usize; 2])>,
+    /// 最新一帧画面（Arc<ColorImage> 零拷贝共享给主 UI texture.set()）
+    pub frame_image: Option<std::sync::Arc<egui::ColorImage>>,
     /// 帧版本号，主 UI 只在版本变化时更新 texture，避免重复 GPU 上传
     pub frame_version: u64,
 }
@@ -50,7 +50,7 @@ impl Default for OverlayState {
             inference_ms: 0.0,
             detected_objects: 0,
             capture_region: CaptureRegion::default(),
-            frame_colors: None,
+            frame_image: None,
             frame_version: 0,
         }
     }
@@ -234,11 +234,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("宽:");
-                                    ui.add(egui::DragValue::new(&mut cr.width).speed(10).clamp_range(100..=8192));
+                                    ui.add(egui::DragValue::new(&mut cr.width).speed(10).range(100..=8192));
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("高:");
-                                    ui.add(egui::DragValue::new(&mut cr.height).speed(10).clamp_range(100..=8192));
+                                    ui.add(egui::DragValue::new(&mut cr.height).speed(10).range(100..=8192));
                                 });
                             }
                             ui.add_space(10.0);
@@ -358,10 +358,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     // 尝试读取最新帧
                     let (frame_opt, detections, region, frame_version) = {
                         let os = state.overlay_state.lock().unwrap();
-                        (os.frame_colors.clone(), os.detections.clone(), os.capture_region, os.frame_version)
+                        (os.frame_image.clone(), os.detections.clone(), os.capture_region, os.frame_version)
                     };
 
-                    if let Some((colors, [fw, fh])) = frame_opt {
+                    if let Some(ref color_image_arc) = frame_opt {
+                        let [fw, fh] = color_image_arc.size;
                         // 获取或创建 texture
                         let texture = state.last_frame.get_or_insert_with(|| {
                             ui.ctx().load_texture(
@@ -371,13 +372,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             )
                         });
                         // 只在 frame_version 变化时更新 texture，避免重复 GPU 上传
+                        // 使用 Arc::clone 零拷贝传递 ColorImage 所有权给 egui
                         if frame_version != state.last_frame_version {
-                            let color_image = egui::ColorImage {
-                                size: [fw, fh],
-                                source_size: egui::vec2(fw as f32, fh as f32),
-                                pixels: (*colors).clone(),
-                            };
-                            texture.set(color_image, egui::TextureOptions::LINEAR);
+                            texture.set(std::sync::Arc::clone(color_image_arc), egui::TextureOptions::LINEAR);
                             state.last_frame_version = frame_version;
                         }
 
@@ -655,7 +652,12 @@ fn start_capture(state: &mut DesktopPageState) {
                 os.inference_ms = inference_ms;
                 os.detected_objects = os.detections.len();
                 os.capture_region = region;
-                os.frame_colors = Some((std::sync::Arc::new(preview_colors), preview_size));
+                let color_image = egui::ColorImage {
+                    size: preview_size,
+                    source_size: egui::vec2(preview_size[0] as f32, preview_size[1] as f32),
+                    pixels: preview_colors,
+                };
+                os.frame_image = Some(std::sync::Arc::new(color_image));
                 os.frame_version += 1;
             }
 

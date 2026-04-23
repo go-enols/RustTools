@@ -268,7 +268,7 @@ fn parse_nvidia_smi(text: &str, info: &mut CudaInfo) {
             let parts: Vec<_> = line.split('|').collect();
             if parts.len() >= 3 {
                 let gpu_part = parts[2];
-                let tokens: Vec<_> = gpu_part.split_whitespace().collect();
+                let _tokens: Vec<_> = gpu_part.split_whitespace().collect();
                 // 提取 GPU 名称（从 NVIDIA 开始）
                 let name_start = gpu_part.find("NVIDIA").unwrap_or(0);
                 let name_end = gpu_part.find("Off").or_else(|| gpu_part.find("On")).unwrap_or(gpu_part.len());
