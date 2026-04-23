@@ -110,6 +110,64 @@ pub fn module_gradient(route: crate::app::Route) -> (egui::Color32, egui::Color3
 }
 
 // ============================================================================
+// Theme Colors - 统一入口，根据 dark_mode 自动切换
+// ============================================================================
+
+pub struct ThemeColors {
+    pub bg: egui::Color32,
+    pub bg_deep: egui::Color32,
+    pub surface: egui::Color32,
+    pub surface_hover: egui::Color32,
+    pub glass: egui::Color32,
+    pub glass_strong: egui::Color32,
+    pub text: egui::Color32,
+    pub text_secondary: egui::Color32,
+    pub text_tertiary: egui::Color32,
+    pub border: egui::Color32,
+    pub shadow: egui::Color32,
+    pub shadow_hover: egui::Color32,
+    pub inner_highlight: egui::Color32,
+}
+
+impl ThemeColors {
+    pub fn light() -> Self {
+        Self {
+            bg: AppleColors::BG,
+            bg_deep: AppleColors::BG_DEEP,
+            surface: AppleColors::SURFACE,
+            surface_hover: AppleColors::SURFACE_HOVER,
+            glass: AppleColors::GLASS,
+            glass_strong: AppleColors::GLASS_STRONG,
+            text: AppleColors::TEXT,
+            text_secondary: AppleColors::TEXT_SECONDARY,
+            text_tertiary: AppleColors::TEXT_TERTIARY,
+            border: AppleColors::BORDER,
+            shadow: AppleColors::SHADOW,
+            shadow_hover: AppleColors::SHADOW_HOVER,
+            inner_highlight: AppleColors::INNER_HIGHLIGHT,
+        }
+    }
+
+    pub fn dark() -> Self {
+        Self {
+            bg: DarkColors::BG,
+            bg_deep: DarkColors::BG_DEEP,
+            surface: DarkColors::SURFACE,
+            surface_hover: DarkColors::SURFACE_HOVER,
+            glass: DarkColors::GLASS,
+            glass_strong: DarkColors::GLASS_STRONG,
+            text: DarkColors::TEXT,
+            text_secondary: DarkColors::TEXT_SECONDARY,
+            text_tertiary: DarkColors::TEXT_TERTIARY,
+            border: DarkColors::BORDER,
+            shadow: DarkColors::SHADOW,
+            shadow_hover: DarkColors::SHADOW_HOVER,
+            inner_highlight: DarkColors::INNER_HIGHLIGHT,
+        }
+    }
+}
+
+// ============================================================================
 // Dark Color System
 // ============================================================================
 

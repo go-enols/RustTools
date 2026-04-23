@@ -182,6 +182,7 @@ impl AnnotationState {
 }
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let state = &mut app.annotation_state;
 
     // 自动加载项目图片
@@ -292,18 +293,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 egui::RichText::new("图像标注")
                     .size(20.0)
                     .strong()
-                    .color(AppleColors::TEXT),
+                    .color(tc.text),
             );
             ui.label(
                 egui::RichText::new("可视化图像标注工具")
                     .size(12.0)
-                    .color(AppleColors::TEXT_SECONDARY),
+                    .color(tc.text_secondary),
             );
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             if ui.add_sized([80.0, 32.0], egui::Button::new(
-                egui::RichText::new("保存标注").color(AppleColors::SURFACE).strong()
+                egui::RichText::new("保存标注").color(tc.surface).strong()
             ).fill(AppleColors::PRIMARY).corner_radius(egui::CornerRadius::same(6))).clicked() {
                 if let Some(ref path) = state.images.get(state.selected_image_idx.unwrap_or(0)) {
                     state.save_annotations_for_image(path, app.current_project.as_ref());
@@ -325,7 +326,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             let painter = ui.painter();
             // 背景
             let bg_rect = egui::Rect::from_min_size(bar_rect.min + egui::vec2(0.0, 14.0), egui::vec2(bar_w, bar_h));
-            painter.rect_filled(bg_rect, egui::CornerRadius::same(3), AppleColors::BG_DEEP);
+            painter.rect_filled(bg_rect, egui::CornerRadius::same(3), tc.bg_deep);
             // 进度
             let progress = annotated_count as f32 / total_images as f32;
             let fill_w = bar_w * progress;
@@ -339,7 +340,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 egui::Align2::LEFT_TOP,
                 &format!("已标注 {} / {} 张图像", annotated_count, total_images),
                 egui::FontId::new(11.0, egui::FontFamily::Proportional),
-                AppleColors::TEXT_SECONDARY,
+                tc.text_secondary,
             );
             let pct = (progress * 100.0) as u32;
             painter.text(
@@ -370,12 +371,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             egui::RichText::new("图像列表")
                                 .size(13.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         ui.label(
                             egui::RichText::new(format!("{}", state.images.len()))
                                 .size(11.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                     });
                     ui.add_space(8.0);
@@ -388,7 +389,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 ui.label(
                                     egui::RichText::new("请先打开图像文件夹")
                                         .size(12.0)
-                                        .color(AppleColors::TEXT_SECONDARY),
+                                        .color(tc.text_secondary),
                                 );
                             } else {
                                 let mut load_idx = None;
@@ -411,7 +412,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                         painter.rect_filled(item_rect, egui::CornerRadius::same(6), AppleColors::PRIMARY.gamma_multiply(0.08));
                                         painter.rect_stroke(item_rect, egui::CornerRadius::same(6), egui::Stroke::new(1.0, AppleColors::PRIMARY.gamma_multiply(0.2)), egui::StrokeKind::Inside);
                                     } else if item_response.hovered() {
-                                        painter.rect_filled(item_rect, egui::CornerRadius::same(6), AppleColors::TEXT.gamma_multiply(0.03));
+                                        painter.rect_filled(item_rect, egui::CornerRadius::same(6), tc.text.gamma_multiply(0.03));
                                     }
 
                                     // 缩略图占位框
@@ -419,10 +420,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                         item_rect.min + egui::vec2(6.0, 4.0),
                                         egui::vec2(28.0, 28.0),
                                     );
-                                    painter.rect_filled(thumb_rect, egui::CornerRadius::same(4), AppleColors::BG_DEEP);
+                                    painter.rect_filled(thumb_rect, egui::CornerRadius::same(4), tc.bg_deep);
                                     // 小型图片图标
                                     let img_icon = thumb_rect.shrink(6.0);
-                                    let stroke = egui::Stroke::new(1.0, AppleColors::TEXT_TERTIARY);
+                                    let stroke = egui::Stroke::new(1.0, tc.text_tertiary);
                                     painter.rect_stroke(img_icon, egui::CornerRadius::same(2), stroke, egui::StrokeKind::Inside);
                                     let m1 = img_icon.min + egui::vec2(img_icon.width() * 0.2, img_icon.height() * 0.7);
                                     let m2 = img_icon.min + egui::vec2(img_icon.width() * 0.5, img_icon.height() * 0.3);
@@ -431,7 +432,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     painter.line_segment([m2, m3], stroke);
 
                                     // 文件名
-                                    let text_color = if is_selected { AppleColors::PRIMARY } else { AppleColors::TEXT };
+                                    let text_color = if is_selected { AppleColors::PRIMARY } else { tc.text };
                                     let text_pos = item_rect.min + egui::vec2(40.0, item_rect.height() * 0.5);
                                     // 截断文件名
                                     let display_name = if name.len() > 18 { format!("{}..", &name[..16]) } else { name };
@@ -448,7 +449,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     if has_annot {
                                         painter.circle_filled(dot_center, 4.0, AppleColors::SUCCESS);
                                     } else {
-                                        painter.circle_stroke(dot_center, 3.5, egui::Stroke::new(1.0, AppleColors::TEXT_TERTIARY.gamma_multiply(0.5)));
+                                        painter.circle_stroke(dot_center, 3.5, egui::Stroke::new(1.0, tc.text_tertiary.gamma_multiply(0.5)));
                                     }
 
                                     if item_response.clicked() {
@@ -481,7 +482,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                         // 选择工具按钮
                         let select_active = state.tool == AnnotationTool::Select;
-                        let sel_color = if select_active { AppleColors::PRIMARY } else { AppleColors::TEXT_SECONDARY };
+                        let sel_color = if select_active { AppleColors::PRIMARY } else { tc.text_secondary };
                         let sel_bg = if select_active { AppleColors::PRIMARY.gamma_multiply(0.1) } else { egui::Color32::TRANSPARENT };
                         let sel_response = ui.add_sized([32.0, 28.0], egui::Button::new("")
                             .fill(sel_bg)
@@ -506,7 +507,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                         // 抓手/平移工具按钮
                         let pan_active = state.tool == AnnotationTool::Pan;
-                        let pan_color = if pan_active { AppleColors::PRIMARY } else { AppleColors::TEXT_SECONDARY };
+                        let pan_color = if pan_active { AppleColors::PRIMARY } else { tc.text_secondary };
                         let pan_bg = if pan_active { AppleColors::PRIMARY.gamma_multiply(0.1) } else { egui::Color32::TRANSPARENT };
                         let pan_response = ui.add_sized([32.0, 28.0], egui::Button::new("")
                             .fill(pan_bg)
@@ -524,7 +525,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                         // 矩形工具按钮
                         let rect_active = state.tool == AnnotationTool::Rectangle;
-                        let rect_color = if rect_active { AppleColors::PRIMARY } else { AppleColors::TEXT_SECONDARY };
+                        let rect_color = if rect_active { AppleColors::PRIMARY } else { tc.text_secondary };
                         let rect_bg = if rect_active { AppleColors::PRIMARY.gamma_multiply(0.1) } else { egui::Color32::TRANSPARENT };
                         let rect_response = ui.add_sized([32.0, 28.0], egui::Button::new("")
                             .fill(rect_bg)
@@ -576,7 +577,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.painter().rect_filled(
                         canvas_rect,
                         egui::CornerRadius::same(8),
-                        AppleColors::BG_DEEP,
+                        tc.bg_deep,
                     );
 
                     // 滚轮缩放
@@ -816,7 +817,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             egui::Align2::CENTER_CENTER,
                             "选择图像以开始标注",
                             egui::FontId::new(14.0, egui::FontFamily::Proportional),
-                            AppleColors::TEXT_SECONDARY,
+                            tc.text_secondary,
                         );
                     }
                 });
@@ -835,7 +836,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("类别列表")
                             .size(13.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(8.0);
 
@@ -856,7 +857,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         painter.circle_filled(dot_center, 5.0, color);
 
                         // 类别文字
-                        let text_color = if is_selected { AppleColors::TEXT } else { AppleColors::TEXT_SECONDARY };
+                        let text_color = if is_selected { tc.text } else { tc.text_secondary };
                         let text_str = format!("{}: {}", i, class);
                         let text_pos = item_rect.min + egui::vec2(24.0, item_rect.height() * 0.5);
                         painter.text(
@@ -880,7 +881,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("当前标注")
                             .size(13.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(4.0);
 
@@ -891,7 +892,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.label(
                         egui::RichText::new(format!("{} 个标注", annot_count))
                             .size(11.0)
-                            .color(AppleColors::TEXT_SECONDARY),
+                            .color(tc.text_secondary),
                     );
 
                     if let Some(ref name) = state.selected_image_name() {
@@ -925,7 +926,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("快捷键")
                             .size(13.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(4.0);
                     shortcut(ui, "Q / E", "上/下一张");

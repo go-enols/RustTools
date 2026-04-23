@@ -135,6 +135,7 @@ impl CaptureSource {
 const DESKTOP_MODELS: &[&str] = &["yolo11n.pt", "yolo11s.pt", "自定义模型..."];
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe::Frame>) {
+    let tc = app.colors();
     let state = &mut app.desktop_state;
 
     // 实时同步配置到共享状态
@@ -171,12 +172,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                                 egui::RichText::new("控制面板")
                                     .size(14.0)
                                     .strong()
-                                    .color(AppleColors::TEXT),
+                                    .color(tc.text),
                             );
                             ui.add_space(12.0);
 
                             ui.label(
-                                egui::RichText::new("捕获源").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("捕获源").size(12.0).strong().color(tc.text),
                             );
                             ui.add_space(4.0);
                             for s in [
@@ -193,7 +194,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                             ui.add_space(10.0);
 
                             ui.label(
-                                egui::RichText::new("检测模型").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("检测模型").size(12.0).strong().color(tc.text),
                             );
                             ui.add_space(4.0);
                             let model_name = DESKTOP_MODELS.get(state.model_idx).unwrap_or(&DESKTOP_MODELS[0]);
@@ -208,7 +209,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                             ui.add_space(10.0);
 
                             ui.label(
-                                egui::RichText::new("置信度阈值").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("置信度阈值").size(12.0).strong().color(tc.text),
                             );
                             ui.add_space(4.0);
                             ui.add(egui::Slider::new(&mut state.confidence, 0.01..=1.0).show_value(true));
@@ -222,7 +223,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
 
                             // ── 捕获区域设置 ──
                             ui.label(
-                                egui::RichText::new("捕获区域").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("捕获区域").size(12.0).strong().color(tc.text),
                             );
                             ui.add_space(4.0);
                             {
@@ -247,12 +248,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                             ui.add_space(10.0);
 
                             ui.label(
-                                egui::RichText::new("计算设备").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("计算设备").size(12.0).strong().color(tc.text),
                             );
                             ui.horizontal(|ui| {
                                 ui.label("设备:");
                                 let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-                                ui.painter().circle_filled(dot_rect.center(), 3.5, AppleColors::TEXT_SECONDARY);
+                                ui.painter().circle_filled(dot_rect.center(), 3.5, tc.text_secondary);
                                 ui.label("CPU (Rust/ONNX Runtime)");
                             });
 
@@ -261,24 +262,24 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                             ui.add_space(8.0);
 
                             ui.label(
-                                egui::RichText::new("实时统计").size(12.0).strong().color(AppleColors::TEXT),
+                                egui::RichText::new("实时统计").size(12.0).strong().color(tc.text),
                             );
                             ui.add_space(4.0);
                             egui::Grid::new("desktop_stats")
                                 .num_columns(2)
                                 .spacing([16.0, 6.0])
                                 .show(ui, |ui| {
-                                    ui.label(egui::RichText::new("帧率:").color(AppleColors::TEXT_SECONDARY));
+                                    ui.label(egui::RichText::new("帧率:").color(tc.text_secondary));
                                     ui.label(if fps > 0.0 {
                                         format!("{:.1} FPS", fps)
                                     } else {
                                         "- FPS".to_string()
                                     });
                                     ui.end_row();
-                                    ui.label(egui::RichText::new("检测目标:").color(AppleColors::TEXT_SECONDARY));
+                                    ui.label(egui::RichText::new("检测目标:").color(tc.text_secondary));
                                     ui.label(format!("{}", detected_objects));
                                     ui.end_row();
-                                    ui.label(egui::RichText::new("推理耗时:").color(AppleColors::TEXT_SECONDARY));
+                                    ui.label(egui::RichText::new("推理耗时:").color(tc.text_secondary));
                                     ui.label(if inference_ms > 0.0 {
                                         format!("{:.1} ms", inference_ms)
                                     } else {
@@ -293,7 +294,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
 
                             if !state.is_capturing {
                                 let start_btn = egui::Button::new(
-                                    egui::RichText::new("开始捕获").color(AppleColors::SURFACE).strong(),
+                                    egui::RichText::new("开始捕获").color(tc.surface).strong(),
                                 )
                                 .fill(AppleColors::SUCCESS)
                                 .corner_radius(egui::CornerRadius::same(8));
@@ -302,7 +303,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                                 }
                             } else {
                                 let stop_btn = egui::Button::new(
-                                    egui::RichText::new("停止捕获").color(AppleColors::SURFACE).strong(),
+                                    egui::RichText::new("停止捕获").color(tc.surface).strong(),
                                 )
                                 .fill(AppleColors::DANGER)
                                 .corner_radius(egui::CornerRadius::same(8));
@@ -329,7 +330,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                             egui::RichText::new("实时预览")
                                 .size(14.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if state.is_capturing {
@@ -349,7 +350,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                                 ui.label(
                                     egui::RichText::new("已停止")
                                         .size(12.0)
-                                        .color(AppleColors::TEXT_SECONDARY),
+                                        .color(tc.text_secondary),
                                 );
                             }
                         });
@@ -457,7 +458,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                         ui.painter().rect_filled(
                             preview_rect,
                             egui::CornerRadius::same(8),
-                            AppleColors::BG_DEEP,
+                            tc.bg_deep,
                         );
                         ui.painter().text(
                             preview_rect.center(),
@@ -468,7 +469,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp, frame: Option<&mut eframe
                                 "点击「开始捕获」以启动实时检测"
                             },
                             egui::FontId::new(14.0, egui::FontFamily::Proportional),
-                            AppleColors::TEXT_SECONDARY,
+                            tc.text_secondary,
                         );
                     }
 

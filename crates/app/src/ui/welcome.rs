@@ -5,6 +5,7 @@ use crate::theme::AppleColors;
 /// 独立欢迎页面 - 应用启动后的首屏
 /// 全屏居中展示品牌信息，下方为各模块入口卡片
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let available = ui.available_size();
 
     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -18,7 +19,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             let painter = ui.painter();
             painter.rect_filled(logo_rect, egui::CornerRadius::same(18), AppleColors::PRIMARY);
             let inner = logo_rect.shrink(logo_size * 0.3);
-            painter.rect_filled(inner, egui::CornerRadius::same(6), AppleColors::SURFACE);
+            painter.rect_filled(inner, egui::CornerRadius::same(6), tc.surface);
         }
         ui.add_space(18.0);
 
@@ -27,7 +28,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             egui::RichText::new("RustTools")
                 .size(36.0)
                 .strong()
-                .color(AppleColors::TEXT),
+                .color(tc.text),
         );
         ui.add_space(8.0);
 
@@ -35,7 +36,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         ui.label(
             egui::RichText::new("一站式高性能工具")
                 .size(16.0)
-                .color(AppleColors::TEXT_SECONDARY),
+                .color(tc.text_secondary),
         );
 
         // 分隔线
@@ -99,7 +100,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 ui, card_w, card_h,
                 "更多工具",
                 "持续扩展中...",
-                AppleColors::TEXT_TERTIARY,
+                tc.text_tertiary,
                 |painter, rect, color| {
                     // 三个小圆点
                     let c = rect.center();
@@ -118,7 +119,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         ui.label(
             egui::RichText::new(format!("RustTools v{}", env!("CARGO_PKG_VERSION")))
                 .size(11.0)
-                .color(AppleColors::TEXT_TERTIARY),
+                .color(tc.text_tertiary),
         );
     });
 }

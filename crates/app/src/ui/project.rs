@@ -5,6 +5,7 @@ use crate::models::{DatasetPaths, ProjectConfig};
 use crate::theme::{AppleColors, card_frame, page_header_with_action};
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+
     let mut goto_annotation = false;
     let mut goto_training = false;
 

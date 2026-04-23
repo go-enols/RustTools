@@ -78,6 +78,7 @@ impl Default for VideoPageState {
 const VIDEO_MODELS: &[&str] = &["yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "自定义模型..."];
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     // 收集推理事件
     let events: Vec<InferenceEvent> = if let Some(ref rx) = app.video_state.inference_rx {
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
@@ -190,13 +191,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("推理配置")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
                     // 视频文件选择
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("视频文件:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("视频文件:").color(tc.text_secondary));
                         if ui.button("选择").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("视频文件", &["mp4", "avi", "mov", "mkv"])
@@ -212,7 +213,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new(path_text)
                             .size(11.0)
                             .monospace()
-                            .color(AppleColors::TEXT_SECONDARY),
+                            .color(tc.text_secondary),
                     );
                     ui.add_space(10.0);
 
@@ -232,14 +233,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                     // 置信度阈值
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("置信度:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("置信度:").color(tc.text_secondary));
                         ui.add(egui::Slider::new(&mut app.video_state.confidence, 0.01..=1.0).show_value(true));
                     });
                     ui.add_space(4.0);
 
                     // IOU 阈值
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("IoU:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("IoU:").color(tc.text_secondary));
                         ui.add(egui::Slider::new(&mut app.video_state.iou_threshold, 0.1..=0.9).show_value(true));
                     });
                     ui.add_space(10.0);
@@ -250,7 +251,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                     // 输出路径
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("输出目录:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("输出目录:").color(tc.text_secondary));
                         if ui.button("选择").clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
                                 app.video_state.output_dir = Some(path.to_string_lossy().to_string());
@@ -262,7 +263,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.label(
                         egui::RichText::new(out_text)
                             .size(11.0)
-                            .color(AppleColors::TEXT_SECONDARY),
+                            .color(tc.text_secondary),
                     );
 
                     ui.add_space(12.0);
@@ -270,14 +271,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.add_space(8.0);
 
                     ui.label(
-                        egui::RichText::new("计算设备").size(12.0).strong().color(AppleColors::TEXT),
+                        egui::RichText::new("计算设备").size(12.0).strong().color(tc.text),
                     );
                     ui.horizontal(|ui| {
                         ui.label("设备:");
                         let (device_text, dot_color) = if app.python_env_status.cuda_available {
                             ("GPU (CUDA)", AppleColors::SUCCESS)
                         } else {
-                            ("CPU", AppleColors::TEXT_SECONDARY)
+                            ("CPU", tc.text_secondary)
                         };
                         let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
                         ui.painter().circle_filled(dot_rect.center(), 3.5, dot_color);
@@ -291,7 +292,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         && app.video_state.video_path.is_some()
                         && !app.video_state.is_processing;
                     let start_btn = egui::Button::new(
-                        egui::RichText::new("开始推理").color(AppleColors::SURFACE).strong(),
+                        egui::RichText::new("开始推理").color(tc.surface).strong(),
                     )
                     .fill(AppleColors::PRIMARY)
                     .corner_radius(egui::CornerRadius::same(8));
@@ -317,14 +318,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             egui::RichText::new("视频预览")
                                 .size(14.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         if let Some(ref msg) = app.video_state.status_message {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.label(
                                     egui::RichText::new(msg)
                                         .size(11.0)
-                                        .color(AppleColors::TEXT_SECONDARY),
+                                        .color(tc.text_secondary),
                                 );
                             });
                         }
@@ -340,7 +341,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.painter().rect_filled(
                         preview_rect,
                         egui::CornerRadius::same(8),
-                        AppleColors::BG_DEEP,
+                        tc.bg_deep,
                     );
 
                     // 显示最新帧
@@ -401,7 +402,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         let painter = ui.painter();
                         let play_size = 32.0;
                         let play_rect = egui::Rect::from_center_size(center - egui::vec2(0.0, 8.0), egui::vec2(play_size, play_size));
-                        let stroke = egui::Stroke::new(1.5, AppleColors::TEXT_TERTIARY.gamma_multiply(0.5));
+                        let stroke = egui::Stroke::new(1.5, tc.text_tertiary.gamma_multiply(0.5));
                         painter.circle_stroke(play_rect.center(), play_size * 0.5, stroke);
                         let tri_left = play_rect.center() + egui::vec2(-play_size * 0.15, -play_size * 0.2);
                         let tri_top = play_rect.center() + egui::vec2(play_size * 0.2, 0.0);
@@ -415,7 +416,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             egui::Align2::CENTER_CENTER,
                             "选择视频文件",
                             egui::FontId::new(13.0, egui::FontFamily::Proportional),
-                            AppleColors::TEXT_SECONDARY,
+                            tc.text_secondary,
                         );
                     }
                 });
@@ -428,7 +429,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("处理进度")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(8.0);
 
@@ -444,7 +445,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         ui.label("正在处理...");
                     } else {
                         ui.label(
-                            egui::RichText::new("等待开始...").color(AppleColors::TEXT_SECONDARY),
+                            egui::RichText::new("等待开始...").color(tc.text_secondary),
                         );
                     }
 
@@ -456,31 +457,31 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("检测统计")
                             .size(13.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(4.0);
                     egui::Grid::new("video_stats")
                         .num_columns(2)
                         .spacing([24.0, 6.0])
                         .show(ui, |ui| {
-                            ui.label(egui::RichText::new("总检测目标:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("总检测目标:").color(tc.text_secondary));
                             ui.label(format!("{}", app.video_state.detected_objects));
                             ui.end_row();
-                            ui.label(egui::RichText::new("平均置信度:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("平均置信度:").color(tc.text_secondary));
                             ui.label(if app.video_state.avg_confidence > 0.0 {
                                 format!("{:.3}", app.video_state.avg_confidence)
                             } else {
                                 "-".to_string()
                             });
                             ui.end_row();
-                            ui.label(egui::RichText::new("处理帧率:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("处理帧率:").color(tc.text_secondary));
                             ui.label(if app.video_state.fps > 0.0 {
                                 format!("{:.1}", app.video_state.fps)
                             } else {
                                 "-".to_string()
                             });
                             ui.end_row();
-                            ui.label(egui::RichText::new("输出文件:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("输出文件:").color(tc.text_secondary));
                             ui.label(app.video_state.output_dir.as_deref().unwrap_or("不保存"));
                             ui.end_row();
                         });

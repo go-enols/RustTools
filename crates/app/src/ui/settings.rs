@@ -48,6 +48,7 @@ impl Default for SettingsState {
 }
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let state = &mut app.settings_state;
 
     // ── 收集安装线程消息 ──
@@ -98,7 +99,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 // 环境检测卡片
                 card_frame().show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("环境检测").size(14.0).strong().color(AppleColors::TEXT));
+                        ui.label(egui::RichText::new("环境检测").size(14.0).strong().color(tc.text));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button("🔄 刷新检测").clicked() {
                                 state.env_report = Some(generate_env_report());
@@ -112,67 +113,67 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     let report = state.env_report.get_or_insert_with(generate_env_report);
 
                     // 系统信息
-                    ui.label(egui::RichText::new("系统信息").size(12.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("系统信息").size(12.0).strong().color(tc.text));
                     ui.add_space(4.0);
                     egui::Grid::new("sys_info_grid").num_columns(2).spacing([20.0, 8.0]).show(ui, |ui| {
-                        ui.label(egui::RichText::new("操作系统:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("操作系统:").color(tc.text_secondary));
                         ui.label(format!("{} {} ({})", report.system.os, report.system.arch, report.system.os_version.as_deref().unwrap_or("未知")));
                         ui.end_row();
 
-                        ui.label(egui::RichText::new("CPU 核心:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("CPU 核心:").color(tc.text_secondary));
                         ui.label(format!("{}", report.system.cpu_cores));
                         ui.end_row();
 
-                        ui.label(egui::RichText::new("内存:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("内存:").color(tc.text_secondary));
                         ui.label(format!("{} MB", report.system.total_memory_mb));
                         ui.end_row();
                     });
                     ui.add_space(12.0);
 
                     // GPU / CUDA 信息
-                    ui.label(egui::RichText::new("GPU / CUDA").size(12.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("GPU / CUDA").size(12.0).strong().color(tc.text));
                     ui.add_space(4.0);
                     if report.cuda.available {
                         egui::Grid::new("cuda_grid").num_columns(2).spacing([20.0, 8.0]).show(ui, |ui| {
-                            ui.label(egui::RichText::new("CUDA 版本:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("CUDA 版本:").color(tc.text_secondary));
                             ui.label(report.cuda.runtime_version.as_deref().unwrap_or("未知"));
                             ui.end_row();
-                            ui.label(egui::RichText::new("驱动版本:").color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("驱动版本:").color(tc.text_secondary));
                             ui.label(report.cuda.driver_version.as_deref().unwrap_or("未知"));
                             ui.end_row();
                             for (i, gpu) in report.cuda.gpus.iter().enumerate() {
-                                ui.label(egui::RichText::new(format!("GPU {}:", i)).color(AppleColors::TEXT_SECONDARY));
+                                ui.label(egui::RichText::new(format!("GPU {}:", i)).color(tc.text_secondary));
                                 ui.label(format!("{} ({:.0} MB)", gpu.name, gpu.memory_mb));
                                 ui.end_row();
                             }
                         });
                     } else {
                         ui.horizontal(|ui| {
-                            ui.colored_label(AppleColors::TEXT_SECONDARY, "未检测到 NVIDIA GPU / CUDA");
+                            ui.colored_label(tc.text_secondary, "未检测到 NVIDIA GPU / CUDA");
                             if report.system.os == crate::services::env::OsType::MacOS {
-                                ui.colored_label(AppleColors::TEXT_SECONDARY, "（macOS 使用 Apple Silicon / CPU 模式）");
+                                ui.colored_label(tc.text_secondary, "（macOS 使用 Apple Silicon / CPU 模式）");
                             }
                         });
                     }
                     ui.add_space(12.0);
 
                     // Python 环境状态
-                    ui.label(egui::RichText::new("Python 环境").size(12.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("Python 环境").size(12.0).strong().color(tc.text));
                     ui.add_space(4.0);
                     egui::Grid::new("py_env_grid").num_columns(2).spacing([20.0, 8.0]).show(ui, |ui| {
-                        ui.label(egui::RichText::new("uv 包管理器:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("uv 包管理器:").color(tc.text_secondary));
                         status_badge(ui, report.uv_installed, report.uv_version.as_deref().unwrap_or("未安装"));
                         ui.end_row();
-                        ui.label(egui::RichText::new("Python:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("Python:").color(tc.text_secondary));
                         status_badge(ui, report.python_installed, report.python_version.as_deref().unwrap_or("未安装"));
                         ui.end_row();
-                        ui.label(egui::RichText::new("PyTorch:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("PyTorch:").color(tc.text_secondary));
                         let torch_label = if report.torch_available {
                             if report.torch_cuda { "已安装 (GPU)" } else { "已安装 (CPU)" }
                         } else { "未安装" };
                         status_badge(ui, report.torch_available, torch_label);
                         ui.end_row();
-                        ui.label(egui::RichText::new("ONNX Runtime:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("ONNX Runtime:").color(tc.text_secondary));
                         let ort_label = if report.ort_available {
                             if report.ort_cuda { "已安装 (GPU)" } else { "已安装 (CPU)" }
                         } else { "未安装" };
@@ -185,12 +186,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                 // 安装配置卡片
                 card_frame().show(ui, |ui| {
-                    ui.label(egui::RichText::new("安装配置").size(14.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("安装配置").size(14.0).strong().color(tc.text));
                     ui.add_space(12.0);
 
                     // 镜像源选择
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("PyPI 镜像源:").color(AppleColors::TEXT_SECONDARY));
+                        ui.label(egui::RichText::new("PyPI 镜像源:").color(tc.text_secondary));
                         egui::ComboBox::from_id_salt("mirror_select")
                             .selected_text(state.selected_mirror.label())
                             .width(160.0)
@@ -207,7 +208,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         UvManager::generate_install_plan(state.selected_mirror)
                     });
 
-                    ui.label(egui::RichText::new("检测到的安装方案:").color(AppleColors::TEXT_SECONDARY));
+                    ui.label(egui::RichText::new("检测到的安装方案:").color(tc.text_secondary));
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new(&plan.description).strong());
                     if let Some(ref warning) = plan.warning {
@@ -226,9 +227,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         let can_install = matches!(state.install_state, InstallState::Idle | InstallState::Error(_));
                         let btn_text = if can_install { "🚀 一键安装环境" } else { "安装中..." };
                         let btn = egui::Button::new(
-                            egui::RichText::new(btn_text).color(AppleColors::SURFACE).strong(),
+                            egui::RichText::new(btn_text).color(tc.surface).strong(),
                         )
-                        .fill(if can_install { AppleColors::PRIMARY } else { AppleColors::TEXT_SECONDARY })
+                        .fill(if can_install { AppleColors::PRIMARY } else { tc.text_secondary })
                         .corner_radius(egui::CornerRadius::same(8));
                         if ui.add_sized([ui.available_width(), 40.0], btn).clicked() && can_install {
                             // 配置镜像
@@ -255,7 +256,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     .id_salt("install_log")
                                     .show(ui, |ui| {
                                         for msg in &state.progress_messages {
-                                            ui.monospace(egui::RichText::new(msg).size(11.0).color(AppleColors::TEXT_SECONDARY));
+                                            ui.monospace(egui::RichText::new(msg).size(11.0).color(tc.text_secondary));
                                         }
                                     });
                             }
@@ -293,7 +294,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
             egui::Layout::top_down(egui::Align::LEFT),
             |ui| {
                 card_frame().show(ui, |ui| {
-                    ui.label(egui::RichText::new("关于").size(14.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("关于").size(14.0).strong().color(tc.text));
                     ui.add_space(12.0);
                     ui.label("RustTools - AI 目标检测工具箱");
                     ui.label(format!("版本: {}", env!("CARGO_PKG_VERSION")));
@@ -304,7 +305,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 ui.add_space(12.0);
 
                 card_frame().show(ui, |ui| {
-                    ui.label(egui::RichText::new("安装说明").size(14.0).strong().color(AppleColors::TEXT));
+                    ui.label(egui::RichText::new("安装说明").size(14.0).strong().color(tc.text));
                     ui.add_space(12.0);
                     ui.label("一键安装将自动完成：");
                     ui.add_space(4.0);
@@ -314,9 +315,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                     ui.label("4. 根据 CUDA 版本安装 PyTorch（CPU/GPU）");
                     ui.label("5. 安装 ONNX Runtime 等推理依赖");
                     ui.add_space(8.0);
-                    ui.colored_label(AppleColors::TEXT_SECONDARY, "首次安装约需 3-10 分钟，取决于网络速度。建议先选择国内镜像源以加速下载。");
+                    ui.colored_label(tc.text_secondary, "首次安装约需 3-10 分钟，取决于网络速度。建议先选择国内镜像源以加速下载。");
                     ui.add_space(8.0);
-                    ui.colored_label(AppleColors::TEXT_SECONDARY, "如需 CUDA 加速，请确保 NVIDIA 驱动已安装且版本 >= 525（支持 CUDA 12）。");
+                    ui.colored_label(tc.text_secondary, "如需 CUDA 加速，请确保 NVIDIA 驱动已安装且版本 >= 525（支持 CUDA 12）。");
                 });
             },
         );

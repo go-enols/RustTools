@@ -30,6 +30,7 @@ const BASE_MODELS: &[&str] = &["yolo11n.pt", "yolo11s.pt", "yolo11m.pt", "yolo11
 const OPTIMIZERS: &[&str] = &["SGD", "Adam", "AdamW"];
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     page_header(ui, "模型训练", "配置训练参数并监控训练过程");
 
     // 检查项目
@@ -96,7 +97,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("训练配置")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
@@ -150,7 +151,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         ui.label(
                             egui::RichText::new("(Linux 建议 0，避免多进程死锁)")
                                 .size(11.0)
-                                .color(AppleColors::TEXT_TERTIARY),
+                                .color(tc.text_tertiary),
                         );
                     });
 
@@ -183,7 +184,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
 
                         if !is_training {
                             let start_btn = egui::Button::new(
-                                egui::RichText::new("开始训练").color(AppleColors::SURFACE).strong(),
+                                egui::RichText::new("开始训练").color(tc.surface).strong(),
                             )
                             .fill(AppleColors::SUCCESS)
                             .corner_radius(egui::CornerRadius::same(8));
@@ -262,7 +263,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             egui::RichText::new("训练进度")
                                 .size(14.0)
                                 .strong()
-                                .color(AppleColors::TEXT),
+                                .color(tc.text),
                         );
                         if training_active {
                             ui.label(
@@ -282,12 +283,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                     egui::RichText::new(format!("{}", app.training_state.current_epoch))
                                         .size(36.0)
                                         .strong()
-                                        .color(AppleColors::TEXT),
+                                        .color(tc.text),
                                 );
                                 ui.label(
                                     egui::RichText::new(format!("/ {} epochs", app.training_state.total_epochs))
                                         .size(12.0)
-                                        .color(AppleColors::TEXT_SECONDARY),
+                                        .color(tc.text_secondary),
                                 );
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -306,7 +307,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         let bar_h = 8.0;
                         let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                         let painter = ui.painter();
-                        painter.rect_filled(bar_rect, egui::CornerRadius::same(4), AppleColors::BG_DEEP);
+                        painter.rect_filled(bar_rect, egui::CornerRadius::same(4), tc.bg_deep);
                         let fill_w = bar_w * app.training_state.progress;
                         if fill_w > 0.0 {
                             let fill_rect = egui::Rect::from_min_size(bar_rect.min, egui::vec2(fill_w, bar_h));
@@ -316,7 +317,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         ui.add_space(16.0);
 
                         // 指标卡片网格
-                        ui.label(egui::RichText::new("指标概览").size(12.0).strong().color(AppleColors::TEXT));
+                        ui.label(egui::RichText::new("指标概览").size(12.0).strong().color(tc.text));
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 8.0;
@@ -339,7 +340,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             let icon_h = 50.0;
                             let icon_rect = ui.allocate_exact_size(egui::vec2(icon_w, icon_h), egui::Sense::hover()).1.rect;
                             let painter = ui.painter();
-                            let stroke = egui::Stroke::new(1.5, AppleColors::TEXT_TERTIARY.gamma_multiply(0.5));
+                            let stroke = egui::Stroke::new(1.5, tc.text_tertiary.gamma_multiply(0.5));
                             let chart = icon_rect.shrink(4.0);
                             painter.rect_stroke(chart, egui::CornerRadius::same(4), stroke, egui::StrokeKind::Inside);
                             let p1 = chart.min + egui::vec2(chart.width() * 0.1, chart.height() * 0.8);
@@ -351,11 +352,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                             painter.line_segment([p2, p3], stroke);
                             painter.line_segment([p3, p4], stroke);
                             painter.line_segment([p4, p5], stroke);
-                            painter.circle_filled(p5, 2.5, AppleColors::TEXT_TERTIARY.gamma_multiply(0.5));
+                            painter.circle_filled(p5, 2.5, tc.text_tertiary.gamma_multiply(0.5));
 
                             ui.add_space(12.0);
-                            ui.label(egui::RichText::new("未开始训练").size(14.0).strong().color(AppleColors::TEXT));
-                            ui.label(egui::RichText::new("配置参数后点击「开始训练」").size(12.0).color(AppleColors::TEXT_SECONDARY));
+                            ui.label(egui::RichText::new("未开始训练").size(14.0).strong().color(tc.text));
+                            ui.label(egui::RichText::new("配置参数后点击「开始训练」").size(12.0).color(tc.text_secondary));
                             ui.add_space(24.0);
                         });
                     }
@@ -369,7 +370,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("训练日志")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(4.0);
 
@@ -381,7 +382,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 ui.monospace(
                                     egui::RichText::new("等待训练开始...")
                                         .size(11.0)
-                                        .color(AppleColors::TEXT_SECONDARY),
+                                        .color(tc.text_secondary),
                                 );
                             } else {
                                 for msg in &app.training_state.log_messages {

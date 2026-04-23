@@ -4,6 +4,7 @@ use crate::theme::{AppleColors, module_gradient, compact_card_frame};
 
 /// Hub 引导页面 - 有项目时显示项目概览 Dashboard
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let available = ui.available_size();
 
     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -16,19 +17,19 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         let painter = ui.painter();
         painter.rect_filled(logo_rect, egui::CornerRadius::same(10), AppleColors::PRIMARY);
         let inner = logo_rect.shrink(logo_size * 0.3);
-        painter.rect_filled(inner, egui::CornerRadius::same(3), AppleColors::SURFACE);
+        painter.rect_filled(inner, egui::CornerRadius::same(3), tc.surface);
         ui.add_space(8.0);
 
         ui.label(
             egui::RichText::new("RustTools")
                 .size(22.0)
                 .strong()
-                .color(AppleColors::TEXT),
+                .color(tc.text),
         );
         ui.label(
             egui::RichText::new("多功能视觉开发工具箱")
                 .size(12.0)
-                .color(AppleColors::TEXT_SECONDARY),
+                .color(tc.text_secondary),
         );
         ui.add_space(4.0);
 
@@ -37,7 +38,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         compact_card_frame().show(ui, |ui| {
             ui.set_max_width(available.x.min(480.0));
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("运行环境").size(12.0).strong().color(AppleColors::TEXT));
+                ui.label(egui::RichText::new("运行环境").size(12.0).strong().color(tc.text));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(egui::RichText::new("去设置 →").size(11.0).color(AppleColors::PRIMARY)).clicked() {
                         app.route = Route::Settings;
@@ -93,12 +94,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new(&project.name)
                             .size(16.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.label(
                         egui::RichText::new(format!("YOLO {}", project.yolo_version))
                             .size(11.0)
-                            .color(AppleColors::TEXT_SECONDARY),
+                            .color(tc.text_secondary),
                     );
                 });
                 ui.add_space(8.0);
@@ -117,7 +118,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
                     let annot_btn = egui::Button::new(
-                        egui::RichText::new("图像标注").color(AppleColors::SURFACE).strong(),
+                        egui::RichText::new("图像标注").color(tc.surface).strong(),
                     )
                     .fill(AppleColors::PINK)
                     .corner_radius(egui::CornerRadius::same(6));
@@ -125,7 +126,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         app.route = Route::Annotation;
                     }
                     let train_btn = egui::Button::new(
-                        egui::RichText::new("开始训练").color(AppleColors::SURFACE).strong(),
+                        egui::RichText::new("开始训练").color(tc.surface).strong(),
                     )
                     .fill(AppleColors::SUCCESS)
                     .corner_radius(egui::CornerRadius::same(6));
@@ -171,7 +172,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
         ui.label(
             egui::RichText::new(format!("RustTools v{}", env!("CARGO_PKG_VERSION")))
                 .size(11.0)
-                .color(AppleColors::TEXT_TERTIARY),
+                .color(tc.text_tertiary),
         );
     });
 }

@@ -99,6 +99,17 @@ pub struct RustToolsApp {
 }
 
 impl RustToolsApp {
+    /// 获取当前主题颜色
+    pub fn colors(&self) -> crate::theme::ThemeColors {
+        if self.dark_mode {
+            crate::theme::ThemeColors::dark()
+        } else {
+            crate::theme::ThemeColors::light()
+        }
+    }
+}
+
+impl RustToolsApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::setup_cjk_fonts(cc);
         crate::theme::apply_light_theme(&cc.egui_ctx);

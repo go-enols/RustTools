@@ -19,6 +19,7 @@ pub struct DeviceInfoState {
 }
 
 pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
+    let tc = app.colors();
     let state = &mut app.device_info_state;
 
     // Lazy load device info
@@ -49,7 +50,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("Python 环境")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
@@ -101,7 +102,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("系统信息")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
@@ -131,7 +132,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("GPU 信息")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
@@ -194,22 +195,22 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         ui.label(
                             egui::RichText::new("如需使用 GPU 加速，请确保：")
                                 .size(12.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                         ui.label(
                             egui::RichText::new("• 已安装 NVIDIA 显卡驱动")
                                 .size(11.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                         ui.label(
                             egui::RichText::new("• 已安装 CUDA Toolkit")
                                 .size(11.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                         ui.label(
                             egui::RichText::new("• 安装环境时选择 GPU 版本 PyTorch")
                                 .size(11.0)
-                                .color(AppleColors::TEXT_SECONDARY),
+                                .color(tc.text_secondary),
                         );
                     }
                 });
@@ -221,7 +222,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                         egui::RichText::new("CPU 信息")
                             .size(14.0)
                             .strong()
-                            .color(AppleColors::TEXT),
+                            .color(tc.text),
                     );
                     ui.add_space(12.0);
 
