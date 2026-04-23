@@ -1,17 +1,58 @@
-## 架构描述（2026-04-05 详细更新）
+## 架构描述（2026-04-22 重构更新）
 
 ### 项目概述
 
-MyRustTools 是一个基于 Tauri + React + TypeScript + Rust 的桌面应用程序，采用模块化架构设计，支持 YOLO 目标检测、爬虫管理、RPA 自动化等功能扩展。
+RustTools 是一个基于 **egui + eframe + Rust** 的桌面应用程序，专为 YOLO 目标检测模型的训练、推理、标注和视频处理设计。采用纯 Rust 技术栈，GPU 加速渲染，跨平台支持 Windows/macOS/Linux。
 
 ### 技术栈
 
-- **前端**: React 18 + TypeScript + Vite + Tailwind CSS + Zustand
-- **后端**: Rust + Tauri 2.x + Serde
-- **UI组件**: Lucide React 图标库
-- **状态管理**: Zustand (前端全局状态)
-- **构建工具**: Vite (前端) + Cargo (后端)
-- **包管理**: npm/pnpm (前端) + Cargo (后端)
+- **UI 框架**: egui 0.34 + eframe (wgpu 后端)
+- **后端**: Rust + Tokio + Serde
+- **Python 集成**: 外部 Python sidecar (uv 管理虚拟环境)
+- **深度学习**: Burn (Rust 原生) + tract-onnx (ONNX 推理)
+- **构建工具**: Cargo
+- **Python 包管理**: uv
+
+### 项目结构
+
+```
+RustTools/
+├── Cargo.toml              # Workspace 配置
+├── pyproject.toml          # Python 依赖定义
+├── crates/
+│   └── app/                # egui 桌面应用
+│       └── src/
+│           ├── main.rs     # 应用入口
+│           ├── app.rs      # App 状态与路由
+│           ├── ui/         # UI 页面 (Hub, Project, Training, Settings...)
+│           ├── services/   # 业务服务 (训练、视频、Python 环境...)
+│           └── models/     # 数据模型
+└── python/                 # Python 代码
+    ├── core/               # 核心服务
+    ├── modules/            # YOLO 模块
+    └── scripts/
+        └── yolo_server.py  # 训练 sidecar
+```
+
+### 快速开始
+
+```bash
+# 编译并运行
+cargo run -p rusttools-app
+
+# Release 构建
+cargo build --release -p rusttools-app
+```
+
+### Python 环境管理
+
+应用内置自动 Python 环境管理：
+1. 自动检测 `uv` 包管理器（未安装则自动下载）
+2. 自动创建虚拟环境 `~/.rusttools/yolo-env`
+3. 自动从 `pyproject.toml` 安装依赖
+4. 自动检测 CUDA 并选择对应 PyTorch 版本
+
+也可以在 Settings 页面手动触发环境安装。
 
 ### 前端架构 (src/)
 

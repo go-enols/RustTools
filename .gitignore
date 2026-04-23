@@ -1,30 +1,9 @@
 # ====================
-# 依赖目录
-# ====================
-node_modules/
-.pnp/
-.pnp.js
-yarn.lock
-package-lock.json
-pnpm-lock.yaml
-
-# ====================
 # Rust 构建产物
 # ====================
-src-tauri/target/
-Cargo.lock
-src-tauri/*spec
-src-tauri/__pycache__
-src-tauri/datasets
-src-tauri/capabilities
-.cargo/
-
-# ====================
-# 前端构建输出
-# ====================
-dist/
-dist-ssr/
-*.local
+/target/
+*.rlib
+*.rmeta
 
 # ====================
 # IDE 和编辑器
@@ -41,41 +20,32 @@ dist-ssr/
 # 日志和临时文件
 # ====================
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-*.tsbuildinfo
+*.tmp
 
 # ====================
 # 环境变量
 # ====================
 .env
 .env.local
-.env.*.local
 
 # ====================
-# Vite
+# Python
 # ====================
-.vite/
+.python-version
+__pycache__/
+*.pyc
+*.pyo
 
 # ====================
-# 测试覆盖率
+# YOLO / ONNX 模型文件（体积大，不提交到 git）
 # ====================
-coverage/
-*.lcov
-
-# ====================
-# 缓存
-# ====================
-.cache/
-.parcel-cache/
-.eslintcache
-
-# YOLO model files
 *.pt
+*.onnx
+*.engine
+*.mlmodel
 
-# 忽略特定的无用markdown文件
-# 注意：保留重要文档
-# README.md
-# *.md 文件通常用于项目文档，不应该全局忽略
+# ====================
+# 数据集和缓存
+# ====================
+datasets/
+.cache/
