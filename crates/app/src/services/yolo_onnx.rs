@@ -27,7 +27,7 @@ pub const COCO_CLASSES: &[&str] = &[
 pub const NUM_CLASSES: usize = 80;
 
 /// 单个检测结果
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OnnxDetection {
     pub class_id: usize,
     pub confidence: f32,
@@ -103,7 +103,69 @@ impl YoloOnnxEngine {
         self.conf_threshold = conf.clamp(0.01, 1.0);
     }
 
-    /// 对截屏图像进行推理
+    /// 对 RGBA 截屏数据进行零拷贝推理
+    pub fn infer_from_rgba(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<OnnxDetection>, String> {
+        let preprocess_start = std::time::Instant::now();
+        let input_shape = self.preprocess_fast_rgba(rgba, width, height);
+        let preprocess_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
+
+        let infer_start = std::time::Instant::now();
+        let input_tensor = TensorRef::<f32>::from_array_view((input_shape, &*self.input_buffer))
+            .map_err(|e| format!("构建输入 tensor 失败: {}", e))?;
+        let outputs = self.session
+            .run(ort::inputs!["images" => input_tensor])
+            .map_err(|e| format!("推理失败: {}", e))?;
+        let infer_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
+
+        let post_start = std::time::Instant::now();
+        let (_shape, output_data) = outputs["output0"]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("提取输出失败: {}", e))?;
+        let detections = Self::postprocess(
+            output_data, width, height,
+            self.conf_threshold, self.nms_threshold, self.input_size,
+        )?;
+        drop(outputs);
+        let post_ms = post_start.elapsed().as_secs_f64() * 1000.0;
+
+        eprintln!(
+            "[YOLO-ONNX] pre={:.1}ms infer={:.1}ms post={:.1}ms dets={}",
+            preprocess_ms,
+            infer_ms,
+            post_ms,
+            detections.len()
+        );
+
+        Ok(detections)
+    }
+
+    /// Fast preprocess: RGBA → CHW [1,3,640,640]，直接从 RGBA 采样
+    fn preprocess_fast_rgba(&mut self, rgba: &[u8], src_w: u32, src_h: u32) -> [usize; 4] {
+        let dst_size = self.input_size as u32;
+        self.input_buffer.clear();
+        let scale_x = src_w as f32 / dst_size as f32;
+        let scale_y = src_h as f32 / dst_size as f32;
+        for c in 0..3 {
+            // RGBA: R=0, G=1, B=2; 目标 CHW 顺序: R=0, G=1, B=2
+            let src_c = c;
+            for dy in 0..dst_size {
+                for dx in 0..dst_size {
+                    let sx = (dx as f32 * scale_x) as u32;
+                    let sy = (dy as f32 * scale_y) as u32;
+                    let src_idx = ((sy * src_w + sx) * 4 + src_c) as usize;
+                    self.input_buffer.push(rgba[src_idx] as f32 / 255.0);
+                }
+            }
+        }
+        [1, 3, self.input_size, self.input_size]
+    }
+
+    /// 对图片文件进行推理
     pub fn infer(&mut self, image: &image::DynamicImage) -> Result<Vec<OnnxDetection>, String> {
         let preprocess_start = std::time::Instant::now();
         let (input_shape, input_data) = self.preprocess(image)?;
@@ -344,5 +406,193 @@ fn compute_iou(x1: f32, y1: f32, x2: f32, y2: f32, x1b: f32, y1b: f32, x2b: f32,
         0.0
     } else {
         inter / union
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_coco_classes_length_is_80() {
+        assert_eq!(COCO_CLASSES.len(), 80, "COCO_CLASSES should have 80 classes");
+        assert_eq!(NUM_CLASSES, 80, "NUM_CLASSES should be 80");
+    }
+
+    #[test]
+    fn test_coco_classes_first_and_last() {
+        assert_eq!(COCO_CLASSES[0], "person", "First class should be person");
+        assert_eq!(COCO_CLASSES[79], "toothbrush", "Last class should be toothbrush");
+    }
+
+    #[test]
+    fn test_compute_iou_identical_boxes() {
+        let iou = compute_iou(0.0, 0.0, 10.0, 10.0, 0.0, 0.0, 10.0, 10.0);
+        assert!((iou - 1.0).abs() < 1e-5, "Identical boxes should have IoU = 1.0");
+    }
+
+    #[test]
+    fn test_compute_iou_no_overlap() {
+        let iou = compute_iou(0.0, 0.0, 10.0, 10.0, 20.0, 20.0, 30.0, 30.0);
+        assert!((iou - 0.0).abs() < 1e-5, "Non-overlapping boxes should have IoU = 0.0");
+    }
+
+    #[test]
+    fn test_compute_iou_partial_overlap() {
+        // Box A: (0,0) to (10,10), area = 100
+        // Box B: (5,5) to (15,15), area = 100
+        // Intersection: (5,5) to (10,10), area = 25
+        // Union: 100 + 100 - 25 = 175
+        // IoU: 25 / 175 = 0.142857...
+        let iou = compute_iou(0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 15.0, 15.0);
+        let expected = 25.0 / 175.0;
+        assert!(
+            (iou - expected).abs() < 1e-5,
+            "Partial overlap IoU should be ~{:.5}, got {:.5}",
+            expected,
+            iou
+        );
+    }
+
+    #[test]
+    fn test_onnx_detection_serialize() {
+        let det = OnnxDetection {
+            class_id: 5,
+            confidence: 0.95,
+            x1: 10.0,
+            y1: 20.0,
+            x2: 100.0,
+            y2: 200.0,
+        };
+        let json = serde_json::to_string(&det).unwrap();
+        assert!(json.contains("\"class_id\":5"), "Serialized JSON should contain class_id");
+        assert!(json.contains("\"confidence\":0.95"), "Serialized JSON should contain confidence");
+
+        let deserialized: OnnxDetection = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.class_id, 5);
+        assert!((deserialized.confidence - 0.95).abs() < 1e-5);
+        assert_eq!(deserialized.x1, 10.0);
+    }
+
+    #[test]
+    fn test_postprocess_empty_data() {
+        // Empty data should return an error due to length check
+        let result = YoloOnnxEngine::postprocess(
+            &[],
+            640,
+            640,
+            0.25,
+            0.45,
+            640,
+        );
+        assert!(result.is_err(), "Empty data should return error");
+    }
+
+    #[test]
+    fn test_postprocess_no_detections() {
+        // Create mock output data with all confidences below threshold
+        let num_anchors = 8400;
+        let num_features = 84;
+        let mut data = vec![0.0f32; num_features * num_anchors];
+
+        // Set one candidate with very low confidence
+        data[0 * num_anchors + 0] = 320.0; // cx
+        data[1 * num_anchors + 0] = 320.0; // cy
+        data[2 * num_anchors + 0] = 100.0; // w
+        data[3 * num_anchors + 0] = 100.0; // h
+        // class confidences all near 0
+        for c in 0..NUM_CLASSES {
+            data[(4 + c) * num_anchors + 0] = 0.01;
+        }
+
+        let result = YoloOnnxEngine::postprocess(
+            &data,
+            640,
+            640,
+            0.25, // high threshold
+            0.45,
+            640,
+        );
+        assert!(result.is_ok(), "Postprocess should succeed");
+        let detections = result.unwrap();
+        assert_eq!(detections.len(), 0, "No detections should pass high threshold");
+    }
+
+    #[test]
+    fn test_postprocess_single_detection() {
+        let num_anchors = 8400;
+        let num_features = 84;
+        let mut data = vec![0.0f32; num_features * num_anchors];
+
+        // Set one strong detection at anchor 0
+        data[0 * num_anchors + 0] = 320.0; // cx
+        data[1 * num_anchors + 0] = 320.0; // cy
+        data[2 * num_anchors + 0] = 100.0; // w
+        data[3 * num_anchors + 0] = 100.0; // h
+        // class 0 (person) with high confidence
+        data[4 * num_anchors + 0] = 0.9;
+        for c in 1..NUM_CLASSES {
+            data[(4 + c) * num_anchors + 0] = 0.01;
+        }
+
+        let result = YoloOnnxEngine::postprocess(
+            &data,
+            640,
+            640,
+            0.25,
+            0.45,
+            640,
+        );
+        assert!(result.is_ok(), "Postprocess should succeed");
+        let detections = result.unwrap();
+        assert_eq!(detections.len(), 1, "Should detect 1 object");
+        assert_eq!(detections[0].class_id, 0, "Should be class 0 (person)");
+        assert!((detections[0].confidence - 0.9).abs() < 1e-5, "Confidence should be 0.9");
+    }
+
+    #[test]
+    fn test_postprocess_nms_removes_duplicates() {
+        let num_anchors = 8400;
+        let num_features = 84;
+        let mut data = vec![0.0f32; num_features * num_anchors];
+
+        // Set two overlapping detections of the same class
+        // Anchor 0
+        data[0 * num_anchors + 0] = 320.0;
+        data[1 * num_anchors + 0] = 320.0;
+        data[2 * num_anchors + 0] = 100.0;
+        data[3 * num_anchors + 0] = 100.0;
+        data[4 * num_anchors + 0] = 0.9;
+        for c in 1..NUM_CLASSES {
+            data[(4 + c) * num_anchors + 0] = 0.01;
+        }
+
+        // Anchor 1 - slightly offset but heavily overlapping
+        data[0 * num_anchors + 1] = 325.0;
+        data[1 * num_anchors + 1] = 325.0;
+        data[2 * num_anchors + 1] = 100.0;
+        data[3 * num_anchors + 1] = 100.0;
+        data[4 * num_anchors + 1] = 0.85;
+        for c in 1..NUM_CLASSES {
+            data[(4 + c) * num_anchors + 1] = 0.01;
+        }
+
+        let result = YoloOnnxEngine::postprocess(
+            &data,
+            640,
+            640,
+            0.25,
+            0.45, // NMS threshold
+            640,
+        );
+        assert!(result.is_ok(), "Postprocess should succeed");
+        let detections = result.unwrap();
+        // NMS should suppress the lower-confidence duplicate
+        assert_eq!(detections.len(), 1, "NMS should remove duplicate detection");
+        assert!(
+            (detections[0].confidence - 0.9).abs() < 1e-5,
+            "Higher confidence detection should be kept"
+        );
     }
 }

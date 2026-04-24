@@ -206,6 +206,21 @@ pub struct TrainingConfig {
 }
 
 // ============================================================================
+// Project Scan Result
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProjectScanResult {
+    pub train_images: usize,
+    pub val_images: usize,
+    pub total_annotations: usize,
+    pub models: Vec<String>,
+    pub model_count: usize,
+    pub runs: Vec<String>,
+    pub run_count: usize,
+}
+
+// ============================================================================
 // Generic Response
 // ============================================================================
 

@@ -478,6 +478,88 @@ pub fn update_classes(project_path: String, classes: Vec<String>) -> Result<(), 
     Ok(())
 }
 
+/// Scan a project directory and return statistics
+pub fn scan_project(project_path: &str) -> crate::models::ProjectScanResult {
+    use crate::models::ProjectScanResult;
+    let mut result = ProjectScanResult::default();
+    let base = std::path::PathBuf::from(project_path);
+
+    // 统计训练图像
+    let train_img_dir = base.join("images/train");
+    if let Ok(entries) = std::fs::read_dir(&train_img_dir) {
+        result.train_images = entries.flatten().filter(|e| {
+            e.path().extension().map(|ext| {
+                let ext = ext.to_string_lossy().to_lowercase();
+                matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp")
+            }).unwrap_or(false)
+        }).count();
+    }
+
+    // 统计验证图像
+    let val_img_dir = base.join("images/val");
+    if let Ok(entries) = std::fs::read_dir(&val_img_dir) {
+        result.val_images = entries.flatten().filter(|e| {
+            e.path().extension().map(|ext| {
+                let ext = ext.to_string_lossy().to_lowercase();
+                matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp")
+            }).unwrap_or(false)
+        }).count();
+    }
+
+    // 统计标注文件
+    let train_label_dir = base.join("labels/train");
+    if let Ok(entries) = std::fs::read_dir(&train_label_dir) {
+        for entry in entries.flatten() {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                result.total_annotations += content.lines().filter(|l| !l.trim().is_empty()).count();
+            }
+        }
+    }
+    let val_label_dir = base.join("labels/val");
+    if let Ok(entries) = std::fs::read_dir(&val_label_dir) {
+        for entry in entries.flatten() {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                result.total_annotations += content.lines().filter(|l| !l.trim().is_empty()).count();
+            }
+        }
+    }
+
+    // 扫描模型文件
+    let models_dir = base.join("models");
+    if let Ok(entries) = std::fs::read_dir(&models_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext.to_string_lossy().eq_ignore_ascii_case("pt") {
+                    result.model_count += 1;
+                    if result.models.len() < 5 {
+                        if let Some(name) = path.file_name() {
+                            result.models.push(name.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 扫描训练结果
+    let runs_dir = base.join("runs");
+    if let Ok(entries) = std::fs::read_dir(&runs_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                result.run_count += 1;
+                if result.runs.len() < 5 {
+                    if let Some(name) = path.file_name() {
+                        result.runs.push(name.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    result
+}
 
 #[cfg(test)]
 mod tests {

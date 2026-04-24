@@ -82,9 +82,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut RustToolsApp) {
                                 ui.colored_label(AppleColors::WARNING, "不可用");
                             }
                         });
-                        if let Some(ref conda) = app.python_env_status.conda_env_name {
-                            row(ui, "Conda 环境:", &tc, |ui| { ui.label(conda); });
-                        }
                     });
 
                     if !app.python_env_status.python_available {

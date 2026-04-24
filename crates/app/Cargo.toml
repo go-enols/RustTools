@@ -7,6 +7,14 @@ authors.workspace = true
 license.workspace = true
 description = "RustTools - YOLO training and inference tool"
 
+[lib]
+name = "rusttools_app"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "rusttools-app"
+path = "src/main.rs"
+
 [dependencies]
 # UI Framework
 eframe = { version = "0.34", features = ["wgpu"] }

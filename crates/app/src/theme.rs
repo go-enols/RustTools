@@ -79,8 +79,8 @@ impl AppleColors {
 }
 
 // Module brand colors
-pub fn module_color(route: crate::app::Route) -> egui::Color32 {
-    use crate::app::Route;
+pub fn module_color(route: crate::route::Route) -> egui::Color32 {
+    use crate::route::Route;
     match route {
         Route::Welcome => AppleColors::PRIMARY,
         Route::Hub => AppleColors::PRIMARY,
@@ -94,8 +94,8 @@ pub fn module_color(route: crate::app::Route) -> egui::Color32 {
     }
 }
 
-pub fn module_gradient(route: crate::app::Route) -> (egui::Color32, egui::Color32) {
-    use crate::app::Route;
+pub fn module_gradient(route: crate::route::Route) -> (egui::Color32, egui::Color32) {
+    use crate::route::Route;
     match route {
         Route::Welcome => (AppleColors::PRIMARY, AppleColors::TEAL),
         Route::Hub => (AppleColors::PRIMARY, AppleColors::TEAL),

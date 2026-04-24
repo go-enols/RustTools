@@ -80,7 +80,7 @@ pub struct InstallResult {
     pub torch_version: Option<String>,
 }
 
-/// Python 环境状态
+/// Python 环境状态（仅检测 uv 内部虚拟环境）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PythonEnvStatus {
     pub python_available: bool,
@@ -89,9 +89,6 @@ pub struct PythonEnvStatus {
     pub torch_version: Option<String>,
     pub cuda_available: bool,
     pub installing: bool,
-    pub is_conda: bool,
-    pub is_mamba: bool,
-    pub conda_env_name: Option<String>,
     pub detection_error: Option<String>,
 }
 
@@ -688,12 +685,34 @@ pub fn check_cuda() -> bool {
     })
 }
 
-/// Get the full status of the Python environment
-pub fn get_env_status() -> PythonEnvStatus {
+// ============================================================================
+// Environment status cache
+// ============================================================================
+
+use std::time::{Duration, Instant};
+
+static ENV_STATUS_CACHE: std::sync::OnceLock<std::sync::Mutex<(PythonEnvStatus, Instant)>> = std::sync::OnceLock::new();
+const CACHE_TTL: Duration = Duration::from_secs(30);
+
+fn get_status_cache() -> std::sync::Mutex<(PythonEnvStatus, Instant)> {
+    std::sync::Mutex::new((
+        PythonEnvStatus {
+            python_available: false,
+            python_version: None,
+            torch_available: false,
+            torch_version: None,
+            cuda_available: false,
+            installing: false,
+            detection_error: None,
+        },
+        Instant::now() - CACHE_TTL * 2,
+    ))
+}
+
+fn do_check_env() -> PythonEnvStatus {
     let python_version = check_python();
     let torch_version = check_torch();
     let installing = *get_install_lock().lock().unwrap();
-    let (is_conda, is_mamba, conda_env_name) = check_conda();
 
     let detection_error = if python_version.is_none() {
         Some("Python not found. Please install Python 3.8+ or use the Settings page to set up the environment.".to_string())
@@ -708,11 +727,27 @@ pub fn get_env_status() -> PythonEnvStatus {
         torch_version,
         cuda_available: check_cuda(),
         installing,
-        is_conda,
-        is_mamba,
-        conda_env_name,
         detection_error,
     }
+}
+
+/// Get cached env status (auto-refresh on first call or cache expiry)
+pub fn get_env_status() -> PythonEnvStatus {
+    let cache = ENV_STATUS_CACHE.get_or_init(get_status_cache);
+    let mut guard = cache.lock().unwrap();
+    if guard.1.elapsed() > CACHE_TTL {
+        let fresh = do_check_env();
+        *guard = (fresh.clone(), Instant::now());
+    }
+    guard.0.clone()
+}
+
+/// Force refresh env status (bypass cache)
+pub fn refresh_env_status() -> PythonEnvStatus {
+    let cache = ENV_STATUS_CACHE.get_or_init(get_status_cache);
+    let fresh = do_check_env();
+    *cache.lock().unwrap() = (fresh.clone(), Instant::now());
+    fresh
 }
 
 /// Progress callback type
@@ -891,5 +926,79 @@ mod tests {
         if is_conda || is_mamba {
             assert!(env_name.is_some(), "Env name should be present if conda/mamba is active");
         }
+    }
+
+    #[test]
+    fn test_mirror_source_pypi_url() {
+        assert_eq!(
+            MirrorSource::Default.pypi_url(),
+            "https://pypi.org/simple"
+        );
+        assert_eq!(
+            MirrorSource::Tsinghua.pypi_url(),
+            "https://pypi.tuna.tsinghua.edu.cn/simple"
+        );
+        assert_eq!(
+            MirrorSource::Aliyun.pypi_url(),
+            "https://mirrors.aliyun.com/pypi/simple/"
+        );
+        assert_eq!(
+            MirrorSource::USTC.pypi_url(),
+            "https://pypi.mirrors.ustc.edu.cn/simple/"
+        );
+    }
+
+    #[test]
+    fn test_mirror_source_labels() {
+        assert_eq!(MirrorSource::Default.label(), "官方源");
+        assert_eq!(MirrorSource::Tsinghua.label(), "清华 TUNA");
+        assert_eq!(MirrorSource::Aliyun.label(), "阿里云");
+        assert_eq!(MirrorSource::USTC.label(), "中科大 USTC");
+    }
+
+    #[test]
+    fn test_generate_install_plan_cpu_fallback() {
+        let plan = UvManager::generate_install_plan(MirrorSource::Tsinghua);
+        // Plan should have Python version specified
+        assert!(!plan.python_version.is_empty(), "Python version should be specified");
+        // Should contain torch
+        assert!(
+            plan.packages.iter().any(|p| p.contains("torch")),
+            "Plan should include torch"
+        );
+        // Should contain onnxruntime
+        assert!(
+            plan.packages.iter().any(|p| p.contains("onnxruntime")),
+            "Plan should include onnxruntime"
+        );
+        // Primary index should be set to mirror URL
+        assert_eq!(plan.primary_index, MirrorSource::Tsinghua.pypi_url());
+    }
+
+    #[test]
+    fn test_uv_manager_default_venv_path() {
+        let path = UvManager::default_venv_path();
+        assert!(
+            path.to_string_lossy().contains(".rusttools") || path.to_string_lossy().contains("rusttools"),
+            "Default venv path should contain rusttools: {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn test_python_env_status_no_conda_fields() {
+        let status = PythonEnvStatus {
+            python_available: false,
+            python_version: None,
+            torch_available: false,
+            torch_version: None,
+            cuda_available: false,
+            installing: false,
+            detection_error: None,
+        };
+        // Verify the struct can be serialized without conda/mamba fields
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(!json.contains("conda"), "Should not contain conda field");
+        assert!(!json.contains("mamba"), "Should not contain mamba field");
     }
 }

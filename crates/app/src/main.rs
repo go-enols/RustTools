@@ -2,6 +2,7 @@ use eframe::egui;
 
 mod app;
 mod models;
+mod route;
 mod services;
 mod theme;
 mod ui;
