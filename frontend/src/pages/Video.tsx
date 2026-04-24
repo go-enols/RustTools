@@ -14,8 +14,13 @@ import {
   Zap,
   Eye,
   EyeOff,
+  ArrowRightLeft,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import ModelSelector from "../components/ModelSelector";
+import { usePtExport } from "../hooks/usePtExport";
 
 interface Detection {
   class_id: number;
@@ -44,6 +49,7 @@ export default function Video() {
   const [showLabels, setShowLabels] = useState(true);
   const [autoInfer, setAutoInfer] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const { needsExport, exporting, exportError, exportSuccess, checkModel, doExport } = usePtExport();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const autoInferRef = useRef<number>();
@@ -88,21 +94,29 @@ export default function Video() {
     v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
   };
 
+  const handleSelectModel = async (_name: string, path: string) => {
+    setSelectedModel(path);
+    await checkModel(path);
+  };
+
   const runFrameInference = useCallback(async () => {
     if (!videoPath || !videoRef.current || !selectedModel) {
-      if (!selectedModel) alert("请先选择一个 ONNX 模型");
+      if (!selectedModel) alert("请先选择一个模型");
       return;
+    }
+    if (needsExport) {
+      try { await doExport(selectedModel); } catch { return; }
     }
     const time = videoRef.current.currentTime;
     setInferring(true);
     try {
-      await invoke("load_model", { modelPath: selectedModel });
       const frame = await invoke<string>("extract_video_frame", {
         videoPath,
         timestampSec: time,
       });
       setFramePath(frame);
       const result = await invoke<Detection[]>("run_inference_image", {
+        modelPath: selectedModel,
         imagePath: frame,
         confThreshold: confThreshold,
       });
@@ -112,7 +126,7 @@ export default function Video() {
     } finally {
       setInferring(false);
     }
-  }, [videoPath, selectedModel, confThreshold]);
+  }, [videoPath, selectedModel, confThreshold, needsExport, doExport]);
 
   // Auto inference loop
   useEffect(() => {
@@ -152,10 +166,11 @@ export default function Video() {
 
       if (showBoxes && detections.length > 0) {
         for (const d of detections) {
-          const x = d.x1 * canvas.width;
-          const y = d.y1 * canvas.height;
-          const w = (d.x2 - d.x1) * canvas.width;
-          const h = (d.y2 - d.y1) * canvas.height;
+          // 后端返回的是绝对像素坐标，直接使用
+          const x = d.x1;
+          const y = d.y1;
+          const w = d.x2 - d.x1;
+          const h = d.y2 - d.y1;
           const color = COLORS[d.class_id % COLORS.length];
 
           ctx.strokeStyle = color;
@@ -285,16 +300,20 @@ export default function Video() {
             <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-gray-800">
               <button
                 onClick={runFrameInference}
-                disabled={inferring || !selectedModel}
+                disabled={inferring || !selectedModel || exporting}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-medium hover:shadow-lg hover:shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
               >
-                <ScanEye className="w-3.5 h-3.5" />
-                {inferring ? "推理中..." : "当前帧推理"}
+                {exporting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ScanEye className="w-3.5 h-3.5" />
+                )}
+                {exporting ? "正在转换 ONNX…" : inferring ? "推理中..." : "当前帧推理"}
               </button>
 
               <button
                 onClick={() => setAutoInfer(!autoInfer)}
-                disabled={!selectedModel}
+                disabled={!selectedModel || exporting}
                 className={`px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-all ${
                   autoInfer
                     ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
@@ -319,7 +338,7 @@ export default function Video() {
                 className="p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                 title={showLabels ? "隐藏标签" : "显示标签"}
               >
-                {showLabels ? <span className="text-xs font-bold">Aa</span> : <span className="text-xs text-gray-400">Aa</span>}
+                {showLabels ? <span className="text-xs font-bold">Aa</span> : <span className="text-xs text-gray-400 line-through">Aa</span>}
               </button>
             </div>
           </div>
@@ -334,16 +353,56 @@ export default function Video() {
             </h2>
             <div className="mb-4">
               <ModelSelector
-                onSelect={(_name, path) => setSelectedModel(path)}
+                onSelect={handleSelectModel}
                 compact
                 loadOnSelect={false}
-                ext="onnx"
+                ext="onnx,pt"
               />
+              {needsExport && (
+                <div className="mt-2 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40">
+                  <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                    <ArrowRightLeft className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium">PT 模型需要先转换为 ONNX</p>
+                      <p className="text-amber-600 dark:text-amber-400 mt-0.5">转换只需一次，之后可直接使用该 ONNX 模型进行推理</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {exporting && (
+                <div className="mt-2 px-3 py-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40">
+                  <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-300">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span className="font-medium">正在将 PT 模型转换为 ONNX 格式…</span>
+                  </div>
+                  <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-1 ml-5">转换完成后将自动开始推理</p>
+                </div>
+              )}
+              {exportSuccess && (
+                <div className="mt-2 px-3 py-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40">
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="font-medium">转换完成！</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-1 ml-5">已生成 ONNX 模型，后续推理无需再次转换</p>
+                </div>
+              )}
+              {exportError && (
+                <div className="mt-2 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40">
+                  <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-300">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium">转换失败</p>
+                      <p className="text-red-500 dark:text-red-400 mt-0.5">{exportError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between mb-4">
               <span className="text-xs text-gray-500 dark:text-gray-400">置信度阈值</span>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-400 w-8 text-right">{confThreshold.toFixed(2)}</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 w-8 text-right">{confThreshold.toFixed(2)}</span>
                 <input
                   type="range"
                   min={0.01}

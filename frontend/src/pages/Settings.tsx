@@ -196,9 +196,9 @@ export default function Settings() {
               </button>
 
               {logs.length > 0 && (
-                <div className="mt-3 bg-gray-950 rounded-xl p-3 max-h-40 overflow-auto">
+                <div className="mt-3 bg-gray-100 dark:bg-gray-950 rounded-xl p-3 max-h-40 overflow-auto">
                   {logs.map((log, i) => (
-                    <pre key={i} className="text-[11px] text-gray-500 font-mono">{log}</pre>
+                    <pre key={i} className="text-[11px] text-gray-500 dark:text-gray-400 font-mono">{log}</pre>
                   ))}
                 </div>
               )}

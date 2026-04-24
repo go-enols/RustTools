@@ -24,6 +24,25 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function FormatTag({ path }: { path: string }) {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".pt")) {
+    return (
+      <span className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-[9px] font-medium shrink-0">
+        PT
+      </span>
+    );
+  }
+  if (lower.endsWith(".onnx")) {
+    return (
+      <span className="px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[9px] font-medium shrink-0">
+        ONNX
+      </span>
+    );
+  }
+  return null;
+}
+
 export default function ModelSelector({
   onLoad,
   onSelect,
@@ -77,8 +96,9 @@ export default function ModelSelector({
   }, [ext, selectedPath, autoLoad, doLoad]);
 
   const pickModelFile = async () => {
+    const exts = ext.split(",").map((e) => e.trim());
     const file = await open({
-      filters: [{ name: "Model", extensions: [ext] }],
+      filters: [{ name: "Model", extensions: exts }],
     });
     if (file && typeof file === "string") {
       const name = file.split(/[\\/]/).pop() || file;
@@ -101,12 +121,13 @@ export default function ModelSelector({
           选择模型
         </button>
         {selectedPath && (
-          <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 max-w-[200px] truncate">
+          <span className="flex items-center gap-1.5 text-[10px] text-gray-500 dark:text-gray-400 max-w-[200px]">
             <FileCheck className="w-3 h-3 text-emerald-500 shrink-0" />
             <span className="truncate">{selectedName || selectedPath}</span>
+            <FormatTag path={selectedPath} />
           </span>
         )}
-        {error && <span className="text-[10px] text-red-500">{error}</span>}
+        {error && <span className="text-[10px] text-red-500 dark:text-red-400">{error}</span>}
       </div>
     );
   }
@@ -124,7 +145,7 @@ export default function ModelSelector({
           className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
           title="刷新模型列表"
         >
-          <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
@@ -143,6 +164,7 @@ export default function ModelSelector({
             <span className="text-xs text-emerald-700 dark:text-emerald-400 truncate flex-1">
               {selectedName || selectedPath}
             </span>
+            <FormatTag path={selectedPath} />
           </div>
         )}
       </div>
@@ -158,7 +180,7 @@ export default function ModelSelector({
       <div className="border-t border-gray-100 dark:border-gray-800 pt-3">
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">模型目录中的文件</p>
         {models.length === 0 ? (
-          <p className="text-xs text-gray-400 dark:text-gray-500">未找到 .{ext} 模型文件</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">未找到 .{ext.replace(",", "/")} 模型文件</p>
         ) : (
           <div className="space-y-1.5 max-h-48 overflow-auto">
             {models.map((m) => {
@@ -179,7 +201,10 @@ export default function ModelSelector({
                       {m.name}
                     </span>
                   </div>
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">{formatSize(m.size)}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <FormatTag path={m.path} />
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500">{formatSize(m.size)}</span>
+                  </div>
                 </button>
               );
             })}

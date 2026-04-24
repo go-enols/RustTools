@@ -32,8 +32,10 @@ import Desktop from "./pages/Desktop";
 import ImageInference from "./pages/ImageInference";
 import SettingsPage from "./pages/Settings";
 import Device from "./pages/Device";
+import { AgentPage } from "./agent";
 
-const NAV_ITEMS = [
+// YOLO / 工具类导航
+const TOOL_NAV_ITEMS = [
   { path: "/hub", label: "总览", icon: LayoutGrid },
   { path: "/project", label: "项目", icon: FolderOpen },
   { path: "/annotation", label: "标注", icon: Pencil },
@@ -44,6 +46,8 @@ const NAV_ITEMS = [
   { path: "/device", label: "设备", icon: Cpu },
   { path: "/settings", label: "设置", icon: Settings },
 ];
+
+
 
 function App() {
   const { dark, toggle } = useTheme();
@@ -107,6 +111,7 @@ function App() {
                 <Route path="/image" element={<ImageInference />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/device" element={<Device />} />
+                <Route path="/agent" element={<AgentPage />} />
               </Routes>
             </main>
           </div>
@@ -122,32 +127,37 @@ function App() {
 function Sidebar({ toggleTheme, dark }: { toggleTheme: () => void; dark: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const isWelcome = location.pathname === "/";
+  // Welcome 和 Agent 页面不显示 YOLO 工具侧边栏
+  const isWelcome = location.pathname === "/" || location.pathname === "/agent";
+
+  const renderNavItem = (item: (typeof TOOL_NAV_ITEMS)[0]) => {
+    const Icon = item.icon;
+    const active = location.pathname === item.path;
+    return (
+      <button
+        key={item.path}
+        onClick={() => navigate(item.path)}
+        title={item.label}
+        className={`w-[52px] h-[52px] rounded-2xl flex flex-col items-center justify-center gap-[2px] transition-all duration-200 ${
+          active
+            ? "bg-brand-primary/10 text-brand-primary"
+            : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+        }`}
+      >
+        <Icon className="w-[18px] h-[18px]" strokeWidth={active ? 2.5 : 1.8} />
+        <span className="text-[9px] leading-none font-medium">{item.label}</span>
+      </button>
+    );
+  };
 
   return (
     <aside className="w-[60px] shrink-0 bg-surface dark:bg-surface-dark border-r border-gray-200/50 dark:border-gray-800/50 flex flex-col items-center py-3 gap-0.5 select-none">
       {/* Welcome 页面时隐藏导航项，只保留主题切换 */}
       {!isWelcome && (
         <>
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const active = location.pathname === item.path;
-            return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                title={item.label}
-                className={`w-[52px] h-[52px] rounded-2xl flex flex-col items-center justify-center gap-[2px] transition-all duration-200 ${
-                  active
-                    ? "bg-brand-primary/10 text-brand-primary"
-                    : "text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}
-              >
-                <Icon className="w-[18px] h-[18px]" strokeWidth={active ? 2.5 : 1.8} />
-                <span className="text-[9px] leading-none font-medium">{item.label}</span>
-              </button>
-            );
-          })}
+          {/* 工具类导航（YOLO / Project / Training 等） */}
+          {TOOL_NAV_ITEMS.map(renderNavItem)}
+
           <div className="flex-1" />
         </>
       )}

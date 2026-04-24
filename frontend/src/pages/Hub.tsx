@@ -83,8 +83,16 @@ export default function Hub() {
       const info = await invoke<{ path: string; name: string; images_count: number; labels_count: number }>("scan_project", { path });
       await ctxOpenProject(path);
       // 保存到 recent
+      let list: RecentProject[] = [];
       const raw = localStorage.getItem("recent_projects");
-      const list = raw ? JSON.parse(raw) : [];
+      if (raw) {
+        try {
+          list = JSON.parse(raw);
+          if (!Array.isArray(list)) list = [];
+        } catch {
+          list = [];
+        }
+      }
       const filtered = list.filter((p: RecentProject) => p.path !== info.path);
       localStorage.setItem("recent_projects", JSON.stringify([info, ...filtered].slice(0, 5)));
     } catch (e) {
@@ -124,7 +132,7 @@ export default function Hub() {
             </h2>
             <button
               onClick={() => navigate("/project")}
-              className="text-xs text-brand-primary hover:text-blue-600 flex items-center gap-1 transition"
+              className="text-xs text-brand-primary hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition"
             >
               查看全部 <ArrowRight className="w-3 h-3" />
             </button>
@@ -215,7 +223,7 @@ export default function Hub() {
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">运行环境</h2>
             <button
               onClick={() => navigate("/settings")}
-              className="text-xs text-brand-primary hover:text-blue-600 flex items-center gap-1 transition"
+              className="text-xs text-brand-primary hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition"
             >
               去设置 <ArrowRight className="w-3 h-3" />
             </button>

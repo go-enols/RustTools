@@ -1,14 +1,9 @@
-//! YOLOv11 ONNX 推理引擎（纯 Rust，ort / ONNX Runtime）
+//! YOLOv11 ONNX 推理引擎（纯 Rust，tract-onnx）
 //!
-//! 使用 `ort` (ONNX Runtime Rust 绑定)，CPU 推理性能远高于 tract-onnx。
+//! 使用 `tract-onnx` 纯 Rust ONNX 推理引擎，无 C++ FFI 依赖。
 //! 输入: yolo11n.onnx（ultralytics 导出，输入 [1,3,640,640]，输出 [1,84,8400]）
 
-use ort::session::builder::GraphOptimizationLevel;
-use ort::session::Session;
-use ort::value::TensorRef;
-
-#[cfg(feature = "cuda")]
-use ort::execution_providers::CUDAExecutionProvider;
+use tract_onnx::prelude::*;
 
 /// COCO 80 类标签
 pub const COCO_CLASSES: &[&str] = &[
@@ -39,7 +34,7 @@ pub struct OnnxDetection {
 
 /// ONNX 推理引擎
 pub struct YoloOnnxEngine {
-    session: Session,
+    plan: TypedSimplePlan<TypedModel>,
     conf_threshold: f32,
     nms_threshold: f32,
     input_size: usize,
@@ -66,32 +61,22 @@ impl YoloOnnxEngine {
 
         eprintln!("[YOLO-ONNX] Loading model: {}", model_path.display());
 
-        let mut builder = Session::builder()
-            .map_err(|e| format!("Session builder 失败: {}", e))?
-            .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| format!("优化级别设置失败: {}", e))?
-            .with_intra_threads(4)
-            .map_err(|e| format!("线程设置失败: {}", e))?;
+        let model = tract_onnx::onnx()
+            .model_for_path(&model_path)
+            .map_err(|e| format!("加载 ONNX 模型失败: {}", e))?
+            .into_optimized()
+            .map_err(|e| format!("优化模型失败: {}", e))?;
 
-        #[cfg(feature = "cuda")]
-        {
-            match builder.with_execution_providers([CUDAExecutionProvider::default().build()]) {
-                Ok(b) => builder = b,
-                Err(e) => eprintln!("[YOLO-ONNX] CUDA 初始化失败，回退到 CPU: {}", e),
-            }
-        }
-
-        let session = builder
-            .commit_from_file(&model_path)
-            .map_err(|e| format!("模型加载失败: {}", e))?;
+        let plan = SimplePlan::new(model)
+            .map_err(|e| format!("创建执行计划失败: {}", e))?;
 
         eprintln!(
-            "[YOLO-ONNX] Model loaded in {}ms",
+            "[YOLO-ONNX] Model loaded in {}ms (tract-onnx)",
             start.elapsed().as_millis()
         );
 
         Ok(Self {
-            session,
+            plan,
             conf_threshold: 0.25,
             nms_threshold: 0.45,
             input_size: 640,
@@ -115,22 +100,22 @@ impl YoloOnnxEngine {
         let preprocess_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
 
         let infer_start = std::time::Instant::now();
-        let input_tensor = TensorRef::<f32>::from_array_view((input_shape, &*self.input_buffer))
-            .map_err(|e| format!("构建输入 tensor 失败: {}", e))?;
-        let outputs = self.session
-            .run(ort::inputs!["images" => input_tensor])
+        let input = Tensor::from_shape(&input_shape, &self.input_buffer)
+            .map_err(|e| format!("创建输入张量失败: {}", e))?;
+        let result = self.plan.run(tvec!(input.into()))
             .map_err(|e| format!("推理失败: {}", e))?;
         let infer_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
         let post_start = std::time::Instant::now();
-        let (_shape, output_data) = outputs["output0"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("提取输出失败: {}", e))?;
+        let output = &result[0];
+        let data = output.to_array_view::<f32>()
+            .map_err(|e| format!("读取输出失败: {}", e))?;
+        let data_slice = data.as_slice()
+            .ok_or("输出数据非连续布局")?;
         let detections = Self::postprocess(
-            output_data, width, height,
+            data_slice, width, height,
             self.conf_threshold, self.nms_threshold, self.input_size,
         )?;
-        drop(outputs);
         let post_ms = post_start.elapsed().as_secs_f64() * 1000.0;
 
         eprintln!(
@@ -144,21 +129,34 @@ impl YoloOnnxEngine {
         Ok(detections)
     }
 
-    /// Fast preprocess: RGBA → CHW [1,3,640,640]，直接从 RGBA 采样
+    /// Fast preprocess: RGBA → CHW [1,3,640,640]，手写循环，零中间分配
     fn preprocess_fast_rgba(&mut self, rgba: &[u8], src_w: u32, src_h: u32) -> [usize; 4] {
         let dst_size = self.input_size as u32;
-        self.input_buffer.clear();
+        let total = 3 * self.input_size * self.input_size;
+        self.input_buffer.resize(total, 0.0);
+
         let scale_x = src_w as f32 / dst_size as f32;
         let scale_y = src_h as f32 / dst_size as f32;
+
+        // 预计算采样位置，消除每像素浮点运算
+        let sx_tab: Vec<u32> = (0..dst_size)
+            .map(|dx| (dx as f32 * scale_x).min(src_w as f32 - 1.0) as u32)
+            .collect();
+        let sy_tab: Vec<u32> = (0..dst_size)
+            .map(|dy| (dy as f32 * scale_y).min(src_h as f32 - 1.0) as u32)
+            .collect();
+
         for c in 0..3 {
-            // RGBA: R=0, G=1, B=2; 目标 CHW 顺序: R=0, G=1, B=2
-            let src_c = c;
-            for dy in 0..dst_size {
-                for dx in 0..dst_size {
-                    let sx = (dx as f32 * scale_x) as u32;
-                    let sy = (dy as f32 * scale_y) as u32;
-                    let src_idx = ((sy * src_w + sx) * 4 + src_c) as usize;
-                    self.input_buffer.push(rgba[src_idx] as f32 / 255.0);
+            let src_c = c as u32; // RGBA: R=0, G=1, B=2
+            let dst_offset = c * self.input_size * self.input_size;
+            for dy in 0..dst_size as usize {
+                let sy = sy_tab[dy];
+                let src_row_offset = sy * src_w * 4;
+                let dst_row_offset = dst_offset + dy * self.input_size;
+                for dx in 0..dst_size as usize {
+                    let sx = sx_tab[dx];
+                    let src_idx = (src_row_offset + sx * 4 + src_c) as usize;
+                    self.input_buffer[dst_row_offset + dx] = rgba[src_idx] as f32 * (1.0 / 255.0);
                 }
             }
         }
@@ -172,21 +170,19 @@ impl YoloOnnxEngine {
         let preprocess_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
 
         let infer_start = std::time::Instant::now();
-        let input_tensor = TensorRef::<f32>::from_array_view((input_shape, &*input_data))
-            .map_err(|e| format!("构建输入 tensor 失败: {}", e))?;
-        let outputs = self.session
-            .run(ort::inputs!["images" => input_tensor])
+        let input = Tensor::from_shape(&input_shape, &input_data)
+            .map_err(|e| format!("创建输入张量失败: {}", e))?;
+        let result = self.plan.run(tvec!(input.into()))
             .map_err(|e| format!("推理失败: {}", e))?;
         let infer_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
         let post_start = std::time::Instant::now();
-        let (_shape, output_data) = outputs["output0"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("提取输出失败: {}", e))?;
-        let output_vec = output_data.to_vec();
-        drop(outputs); // 释放对 self.session 的借用
+        let output = &result[0];
+        let data = output.to_array_view::<f32>()
+            .map_err(|e| format!("读取输出失败: {}", e))?;
+        let data_vec: Vec<f32> = data.iter().cloned().collect();
         let detections = Self::postprocess(
-            &output_vec, image.width(), image.height(),
+            &data_vec, image.width(), image.height(),
             self.conf_threshold, self.nms_threshold, self.input_size,
         )?;
         let post_ms = post_start.elapsed().as_secs_f64() * 1000.0;
@@ -214,22 +210,22 @@ impl YoloOnnxEngine {
         let preprocess_ms = preprocess_start.elapsed().as_secs_f64() * 1000.0;
 
         let infer_start = std::time::Instant::now();
-        let input_tensor = TensorRef::<f32>::from_array_view((input_shape, &*self.input_buffer))
-            .map_err(|e| format!("构建输入 tensor 失败: {}", e))?;
-        let outputs = self.session
-            .run(ort::inputs!["images" => input_tensor])
+        let input = Tensor::from_shape(&input_shape, &self.input_buffer)
+            .map_err(|e| format!("创建输入张量失败: {}", e))?;
+        let result = self.plan.run(tvec!(input.into()))
             .map_err(|e| format!("推理失败: {}", e))?;
         let infer_ms = infer_start.elapsed().as_secs_f64() * 1000.0;
 
         let post_start = std::time::Instant::now();
-        let (_shape, output_data) = outputs["output0"]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| format!("提取输出失败: {}", e))?;
+        let output = &result[0];
+        let data = output.to_array_view::<f32>()
+            .map_err(|e| format!("读取输出失败: {}", e))?;
+        let data_slice = data.as_slice()
+            .ok_or("输出数据非连续布局")?;
         let detections = Self::postprocess(
-            output_data, width, height,
+            data_slice, width, height,
             self.conf_threshold, self.nms_threshold, self.input_size,
         )?;
-        drop(outputs);
         let post_ms = post_start.elapsed().as_secs_f64() * 1000.0;
 
         eprintln!(
@@ -243,22 +239,34 @@ impl YoloOnnxEngine {
         Ok(detections)
     }
 
-    /// Fast preprocess: BGRA → CHW [1,3,640,640]，直接从 BGRA 采样，跳过中间 RGBA 转换
-    /// 使用预分配的 input_buffer，避免每帧重新分配内存
+    /// Fast preprocess: BGRA → CHW [1,3,640,640]，手写循环，直接从 BGRA 采样
     fn preprocess_fast_bgra(&mut self, bgra: &[u8], src_w: u32, src_h: u32) -> [usize; 4] {
         let dst_size = self.input_size as u32;
-        self.input_buffer.clear();
+        let total = 3 * self.input_size * self.input_size;
+        self.input_buffer.resize(total, 0.0);
+
         let scale_x = src_w as f32 / dst_size as f32;
         let scale_y = src_h as f32 / dst_size as f32;
+
+        // 预计算采样位置，消除每像素浮点运算
+        let sx_tab: Vec<u32> = (0..dst_size)
+            .map(|dx| (dx as f32 * scale_x).min(src_w as f32 - 1.0) as u32)
+            .collect();
+        let sy_tab: Vec<u32> = (0..dst_size)
+            .map(|dy| (dy as f32 * scale_y).min(src_h as f32 - 1.0) as u32)
+            .collect();
+
         for c in 0..3 {
-            // BGRA: B=0, G=1, R=2; 目标 CHW 顺序: R=0, G=1, B=2
-            let src_c = 2 - c;
-            for dy in 0..dst_size {
-                for dx in 0..dst_size {
-                    let sx = (dx as f32 * scale_x) as u32;
-                    let sy = (dy as f32 * scale_y) as u32;
-                    let src_idx = ((sy * src_w + sx) * 4 + src_c) as usize;
-                    self.input_buffer.push(bgra[src_idx] as f32 / 255.0);
+            let src_c = (2 - c) as u32; // BGRA: B=0, G=1, R=2 → CHW: R=0, G=1, B=2
+            let dst_offset = c * self.input_size * self.input_size;
+            for dy in 0..dst_size as usize {
+                let sy = sy_tab[dy];
+                let src_row_offset = sy * src_w * 4;
+                let dst_row_offset = dst_offset + dy * self.input_size;
+                for dx in 0..dst_size as usize {
+                    let sx = sx_tab[dx];
+                    let src_idx = (src_row_offset + sx * 4 + src_c) as usize;
+                    self.input_buffer[dst_row_offset + dx] = bgra[src_idx] as f32 * (1.0 / 255.0);
                 }
             }
         }
@@ -299,9 +307,58 @@ impl YoloOnnxEngine {
         Ok(([1, 3, self.input_size, self.input_size], tensor_data))
     }
 
-    /// 后处理：从 ONNX 输出 [1,84,8400] 中提取检测框
-    /// 作为关联函数，避免在 outputs 存活期间 borrow self
+    /// 后处理：自动检测 ONNX 输出格式并解析
+    /// 支持两种格式：
+    /// - 传统 YOLO [1, 84, 8400]: 84 = 4 bbox + 80 classes, 8400 anchors
+    /// - 端到端 [1, N, 6]: N 个检测结果，每个 = [x1, y1, x2, y2, conf, class]
     fn postprocess(
+        data: &[f32],
+        orig_w: u32,
+        orig_h: u32,
+        conf_threshold: f32,
+        nms_threshold: f32,
+        input_size: usize,
+    ) -> Result<Vec<OnnxDetection>, String> {
+        const LEGACY_LEN: usize = 84 * 8400; // 705600
+
+        match data.len() {
+            LEGACY_LEN => Self::postprocess_legacy(
+                data, orig_w, orig_h, conf_threshold, nms_threshold, input_size,
+            ),
+            len if len >= 6 && len % 6 == 0 => {
+                let num_dets = len / 6;
+                // 启发式判断 [N,6] 还是 [6,N] 布局：
+                // 扫描前50个检测框，统计两种格式下 conf(0-1) 和 class(0-100) 同时合理的数量
+                let valid_interleaved = (0..num_dets.min(50))
+                    .filter(|&i| {
+                        let conf = data.get(i * 6 + 4).copied().unwrap_or(-1.0);
+                        let class = data.get(i * 6 + 5).copied().unwrap_or(-1.0);
+                        conf >= 0.0 && conf <= 1.0 && class >= 0.0 && class <= 100.0
+                    })
+                    .count();
+                let valid_non_interleaved = (0..num_dets.min(50))
+                    .filter(|&i| {
+                        let conf = data.get(4 * num_dets + i).copied().unwrap_or(-1.0);
+                        let class = data.get(5 * num_dets + i).copied().unwrap_or(-1.0);
+                        conf >= 0.0 && conf <= 1.0 && class >= 0.0 && class <= 100.0
+                    })
+                    .count();
+                let interleaved = valid_interleaved >= valid_non_interleaved;
+                eprintln!("[YOLO-ONNX] format: interleaved={}, valid_i={}, valid_ni={}",
+                         interleaved, valid_interleaved, valid_non_interleaved);
+                Self::postprocess_end2end(
+                    data, num_dets, interleaved, orig_w, orig_h, conf_threshold, input_size,
+                )
+            }
+            _ => Err(format!(
+                "不支持的 ONNX 输出格式: 数据长度 {}。期望 {} (YOLOv8 传统 [1,84,8400]) 或 6 的倍数 (端到端 [1,N,6])",
+                data.len(), LEGACY_LEN
+            )),
+        }
+    }
+
+    /// 传统 YOLO 后处理：[1, 84, 8400]
+    fn postprocess_legacy(
         data: &[f32],
         orig_w: u32,
         orig_h: u32,
@@ -388,6 +445,110 @@ impl YoloOnnxEngine {
                 }
             }
         }
+
+        Ok(detections)
+    }
+
+    /// 端到端后处理：[1, N, 6] 或 [1, 6, N]
+    /// 每个检测 = [x1, y1, x2, y2, conf, class]，通常已内置 NMS
+    fn postprocess_end2end(
+        data: &[f32],
+        num_dets: usize,
+        interleaved: bool, // true: [N,6], false: [6,N]
+        orig_w: u32,
+        orig_h: u32,
+        conf_threshold: f32,
+        input_size: usize,
+    ) -> Result<Vec<OnnxDetection>, String> {
+        let scale_x = orig_w as f32 / input_size as f32;
+        let scale_y = orig_h as f32 / input_size as f32;
+
+        // 判断坐标范围：采样所有检测的 x2 最大值
+        // 端到端模型的坐标可能是 0-1 归一化或 0-input_size 模型空间
+        let max_x2 = if interleaved {
+            (0..num_dets)
+                .map(|i| data.get(i * 6 + 2).copied().unwrap_or(0.0))
+                .fold(0.0f32, f32::max)
+        } else {
+            (0..num_dets)
+                .map(|i| data.get(2 * num_dets + i).copied().unwrap_or(0.0))
+                .fold(0.0f32, f32::max)
+        };
+        // 判断坐标是否归一化：归一化坐标最大≈1.0，模型空间坐标通常在 1~640 范围。
+        // 使用阈值 2.0 更安全，避免恰好 x2=1.0 的边界情况。
+        let coords_normalized = max_x2 < 2.0;
+
+        // 调试：打印坐标范围判断结果和前几个有效检测
+        if let Some(first_valid) = (0..num_dets.min(20)).find(|&i| {
+            let conf = if interleaved { data[i * 6 + 4] } else { data[4 * num_dets + i] };
+            conf >= conf_threshold
+        }) {
+            let (x1, y1, x2, y2, conf, _cls) = if interleaved {
+                let b = first_valid * 6;
+                (data[b], data[b+1], data[b+2], data[b+3], data[b+4], data[b+5])
+            } else {
+                (data[0*num_dets+first_valid], data[1*num_dets+first_valid],
+                 data[2*num_dets+first_valid], data[3*num_dets+first_valid],
+                 data[4*num_dets+first_valid], data[5*num_dets+first_valid])
+            };
+            eprintln!("[YOLO-ONNX] max_x2={:.2} normalized={} | first_valid det[{}]: x1={:.2} y1={:.2} x2={:.2} y2={:.2} conf={:.3}",
+                     max_x2, coords_normalized, first_valid, x1, y1, x2, y2, conf);
+        }
+
+        let mut detections = Vec::with_capacity(num_dets.min(100));
+
+        for i in 0..num_dets {
+            let (x1, y1, x2, y2, conf, class_id) = if interleaved {
+                let base = i * 6;
+                if base + 5 >= data.len() { break; }
+                (
+                    data[base + 0],
+                    data[base + 1],
+                    data[base + 2],
+                    data[base + 3],
+                    data[base + 4],
+                    data[base + 5] as usize,
+                )
+            } else {
+                if 5 * num_dets + i >= data.len() { break; }
+                (
+                    data[0 * num_dets + i],
+                    data[1 * num_dets + i],
+                    data[2 * num_dets + i],
+                    data[3 * num_dets + i],
+                    data[4 * num_dets + i],
+                    data[5 * num_dets + i] as usize,
+                )
+            };
+
+            if conf < conf_threshold {
+                continue;
+            }
+
+            let (x1, y1, x2, y2) = if coords_normalized {
+                (
+                    x1 * input_size as f32,
+                    y1 * input_size as f32,
+                    x2 * input_size as f32,
+                    y2 * input_size as f32,
+                )
+            } else {
+                (x1, y1, x2, y2)
+            };
+
+            detections.push(OnnxDetection {
+                class_id,
+                confidence: conf,
+                x1: x1 * scale_x,
+                y1: y1 * scale_y,
+                x2: x2 * scale_x,
+                y2: y2 * scale_y,
+            });
+        }
+
+        // 端到端格式通常已做 NMS，但做一遍也不影响
+        detections.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        detections.truncate(100);
 
         Ok(detections)
     }

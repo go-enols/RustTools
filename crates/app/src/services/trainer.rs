@@ -1,5 +1,5 @@
 use crate::models::{TrainingMetrics, TrainingRequest, TrainingStatus};
-use crate::services::python_env::resolved_python;
+use crate::services::python_env::resolve_managed_python;
 use rand::Rng;
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -38,18 +38,68 @@ impl TrainerService {
 
     /// Find and start the Python sidecar process
     async fn start_sidecar(&self) -> Result<(Child, tokio::sync::oneshot::Receiver<String>), String> {
-        let script_paths = [
-            "python/scripts/yolo_server.py",
-            "scripts/yolo_server.py",
-            "src-tauri/scripts/yolo_server.py",
-        ];
+        // Try to find script relative to executable first, then relative to cwd
+        let mut candidates = Vec::new();
 
-        let script_path = script_paths
+        // 1. Relative to current executable (for packaged apps)
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.join("python/scripts/yolo_server.py"));
+                candidates.push(exe_dir.join("../python/scripts/yolo_server.py"));
+                candidates.push(exe_dir.join("../../python/scripts/yolo_server.py"));
+                candidates.push(exe_dir.join("scripts/yolo_server.py"));
+                candidates.push(exe_dir.join("../scripts/yolo_server.py"));
+            }
+        }
+
+        // 2. Relative to current working directory (for dev mode)
+        candidates.push(std::path::PathBuf::from("python/scripts/yolo_server.py"));
+        candidates.push(std::path::PathBuf::from("scripts/yolo_server.py"));
+        candidates.push(std::path::PathBuf::from("src-tauri/scripts/yolo_server.py"));
+
+        let script_path = candidates
             .iter()
-            .find(|p| std::path::Path::new(p).exists())
-            .ok_or_else(|| "Python sidecar script not found".to_string())?;
+            .find(|p| p.exists())
+            .ok_or_else(|| {
+                let checked = candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ");
+                format!("Python sidecar script not found. Checked: {}", checked)
+            })?;
 
-        let python_cmd = resolved_python().ok_or_else(|| "Python not found. Please install Python 3.8+.".to_string())?;
+        let script_path = script_path.to_string_lossy().to_string();
+
+        let python_cmd = resolve_managed_python()
+            .or_else(|| {
+                // Fallback: try the general resolver (system python)
+                crate::services::python_env::resolved_python()
+            })
+            .ok_or_else(|| "Python not found. Please install the environment in Settings first.".to_string())?;
+
+        // Ensure ultralytics is installed; auto-install via uv if missing
+        match tokio::process::Command::new(&python_cmd)
+            .args(["-c", "import ultralytics; print('ok')"])
+            .output()
+            .await
+        {
+            Ok(output) if output.status.success() => {}
+            _ => {
+                eprintln!("[Trainer] ultralytics not found in {}, attempting to install...", python_cmd);
+                let manager = crate::services::python_env::UvManager::new();
+                if let Some(uv) = manager.uv_path() {
+                    let install = tokio::process::Command::new(uv)
+                        .args(["pip", "install", "--python", &python_cmd, "ultralytics"])
+                        .output()
+                        .await
+                        .map_err(|e| format!("Failed to run uv install ultralytics: {}", e))?;
+                    if !install.status.success() {
+                        let stderr = String::from_utf8_lossy(&install.stderr);
+                        return Err(format!("ultralytics is not installed and auto-install failed: {}", stderr));
+                    }
+                    eprintln!("[Trainer] ultralytics installed successfully");
+                } else {
+                    return Err("ultralytics is not installed and uv is not available. Please install the environment in Settings.".to_string());
+                }
+            }
+        }
 
         // Capture stderr so Python-side errors (ImportError, CUDA init failure)
         // are relayed to the frontend instead of lost to the terminal.
@@ -106,6 +156,20 @@ impl TrainerService {
     ) -> Result<String, String> {
         eprintln!("[Trainer] Starting training via pipe...");
 
+        // 1) Ensure model is present in cache before launching sidecar
+        let model_path = match self.check_model(&request.base_model).await {
+            Ok((true, Some(path))) => {
+                eprintln!("[Trainer] Model found in cache: {}", path);
+                path
+            }
+            _ => {
+                eprintln!("[Trainer] Model not cached, downloading {}...", request.base_model);
+                self.download_model(&request.base_model, |msg| {
+                    eprintln!("[Trainer] Download: {}", msg);
+                }).await.map_err(|e| format!("模型下载失败: {}", e))?
+            }
+        };
+
         let (mut child, stderr_rx) = self.start_sidecar().await?;
 
         let stdin = child
@@ -117,10 +181,10 @@ impl TrainerService {
             .take()
             .ok_or_else(|| "Failed to take stdout".to_string())?;
 
-        // Build config
+        // Build config — pass absolute model path so Python never needs to download
         let config = serde_json::json!({
             "project_path": project_path,
-            "base_model": request.base_model,
+            "base_model": model_path,          // absolute path, e.g. /home/xxx/.cache/ultralytics/yolo11n.pt
             "epochs": request.epochs,
             "batch_size": request.batch_size,
             "image_size": request.image_size,
@@ -184,12 +248,18 @@ impl TrainerService {
             loop {
                 tokio::select! {
                     _ = stop_rx.recv() => {
-                        // Send stop command to Python
-                        eprintln!("[Trainer] Sending stop command to Python...");
-                        // Note: Can't easily write to stdin here, so just kill
+                        // Graceful stop already sent via stdin in stop_training().
+                        // Give Python up to 3 seconds to exit gracefully before killing.
+                        eprintln!("[Trainer] Stop signal received, waiting for graceful shutdown...");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         if let Some(h) = processes.write().await.get_mut(&process_id) {
-                            let _ = h.child.kill().await;
-                            h.status.running = false;
+                            if h.status.running {
+                                eprintln!("[Trainer] Python did not exit gracefully, forcing kill...");
+                                let _ = h.child.kill().await;
+                                h.status.running = false;
+                            } else {
+                                eprintln!("[Trainer] Python exited gracefully");
+                            }
                         }
                         break;
                     }
@@ -326,6 +396,8 @@ impl TrainerService {
             // Clean up
             if let Some(h) = processes.write().await.get_mut(&process_id) {
                 h.status.running = false;
+                // Close stdin to signal EOF to Python so its main() loop exits
+                let _ = h.stdin.take();
                 // Try to get stderr output from the oneshot receiver
                 let stderr_output = match h.stderr_rx.try_recv() {
                     Ok(output) => output,
@@ -342,14 +414,38 @@ impl TrainerService {
     }
 
     pub async fn stop_training(&self, training_id: &str) -> Result<(), String> {
-        let mut processes = self.processes.write().await;
-        if let Some(handle) = processes.get_mut(training_id) {
-            if let Some(tx) = handle.stop_tx.take() {
-                let _ = tx.send(()).await;
+        // Extract handle fields under lock, then release before async I/O
+        let (mut stdin_opt, stop_tx_opt) = {
+            let mut processes = self.processes.write().await;
+            if let Some(handle) = processes.get_mut(training_id) {
+                let stdin = handle.stdin.take();
+                let tx = handle.stop_tx.take();
+                handle.status.running = false;
+                handle.status.paused = false;
+                (stdin, tx)
+            } else {
+                return Err("Training not found".to_string());
             }
-            handle.status.running = false;
-            handle.status.paused = false;
+        };
+
+        // 1) Send graceful stop command to Python via stdin
+        if let Some(ref mut stdin) = stdin_opt {
+            let stop_cmd = serde_json::json!({"type": "stop"});
+            let cmd_str = serde_json::to_string(&stop_cmd).unwrap() + "\n";
+            if let Err(e) = stdin.write_all(cmd_str.as_bytes()).await {
+                eprintln!("[Trainer] Failed to write stop command: {}", e);
+            }
+            if let Err(e) = stdin.flush().await {
+                eprintln!("[Trainer] Failed to flush stop command: {}", e);
+            }
+            eprintln!("[Trainer] Stop command sent to Python sidecar");
         }
+
+        // 2) Notify stdout reader to enforce kill after grace period
+        if let Some(tx) = stop_tx_opt {
+            let _ = tx.send(()).await;
+        }
+
         Ok(())
     }
 
@@ -374,18 +470,24 @@ impl TrainerService {
     }
 
     pub async fn get_status(&self, training_id: &str) -> Option<TrainingStatus> {
-        self.processes
-            .read()
-            .await
-            .get(training_id)
-            .map(|h| h.status.clone())
+        // Use try_read to avoid blocking the UI thread
+        match self.processes.try_read() {
+            Ok(processes) => processes.get(training_id).map(|h| h.status.clone()),
+            Err(_) => None, // Lock contested, try next frame
+        }
     }
 
     pub async fn get_logs(&self, training_id: &str) -> Vec<String> {
-        if let Some(h) = self.processes.write().await.get_mut(training_id) {
-            std::mem::take(&mut h.log_messages)
-        } else {
-            Vec::new()
+        // Use try_write to avoid blocking the UI thread if the lock is contended
+        match self.processes.try_write() {
+            Ok(mut processes) => {
+                if let Some(h) = processes.get_mut(training_id) {
+                    std::mem::take(&mut h.log_messages)
+                } else {
+                    Vec::new()
+                }
+            }
+            Err(_) => Vec::new(), // Lock contested, return empty and try next frame
         }
     }
 

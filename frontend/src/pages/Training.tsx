@@ -74,6 +74,7 @@ export default function Training() {
   const [baseModel, setBaseModel] = useState("yolo11n.pt");
   const [results, setResults] = useState<TrainingResult[]>([]);
   const [resultsLoading, setResultsLoading] = useState(false);
+  const prevRunningRef = useRef(false);
 
   interface TrainingResult {
     name: string;
@@ -155,10 +156,16 @@ export default function Training() {
 
   useEffect(() => {
     if (!trainingId) return;
+    prevRunningRef.current = false;
     const interval = setInterval(async () => {
       try {
         const s = await invoke<TrainingStatus>("get_training_status", { trainingId });
         setStatus(s);
+        // 训练完成自动刷新历史结果
+        if (prevRunningRef.current && !s.running) {
+          refreshResults();
+        }
+        prevRunningRef.current = s.running;
         const newLogs = await invoke<string[]>("list_training_logs", { trainingId });
         if (newLogs.length > 0) {
           setLogs((prev) => [...prev, ...newLogs]);
@@ -168,7 +175,7 @@ export default function Training() {
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [trainingId]);
+  }, [trainingId, refreshResults]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -259,7 +266,7 @@ export default function Training() {
                 <select
                   value={config.optimizer}
                   onChange={(e) => setConfig((c) => ({ ...c, optimizer: e.target.value }))}
-                  className="w-32 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 text-gray-900 dark:text-white focus:outline-none focus:border-blue-400 dark:focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all"
+                  className="w-32 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-blue-400 dark:focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all dark:[color-scheme:dark]"
                 >
                   <option value="SGD">SGD</option>
                   <option value="Adam">Adam</option>
@@ -328,7 +335,7 @@ export default function Training() {
                 <button
                   onClick={refreshResults}
                   disabled={resultsLoading}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                  className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition"
                 >
                   {resultsLoading ? "刷新中..." : "刷新"}
                 </button>
@@ -356,13 +363,13 @@ export default function Training() {
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">训练日志</h2>
             <div
               ref={logRef}
-              className="bg-gray-950 rounded-xl p-4 h-72 overflow-auto font-mono text-[11px] leading-relaxed"
+              className="bg-gray-100 dark:bg-gray-950 rounded-xl p-4 h-72 overflow-auto font-mono text-[11px] leading-relaxed"
             >
               {logs.length === 0 && (
-                <span className="text-gray-600">等待训练开始...</span>
+                <span className="text-gray-400 dark:text-gray-600">等待训练开始...</span>
               )}
               {logs.map((log, i) => (
-                <div key={i} className={log.includes("错误") || log.includes("Error") ? "text-red-400" : "text-gray-400"}>
+                <div key={i} className={log.includes("错误") || log.includes("Error") ? "text-red-600 dark:text-red-400" : "text-gray-600 dark:text-gray-400"}>
                   {log}
                 </div>
               ))}

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { Camera, Sparkles } from "lucide-react";
+import { Camera, Sparkles, Brain } from "lucide-react";
 
 export default function Welcome() {
   const navigate = useNavigate();
@@ -30,6 +30,13 @@ export default function Welcome() {
             desc="目标检测 / 标注 / 训练 / 推理"
             gradient="from-pink-500 to-rose-500"
             onClick={() => navigate("/hub")}
+          />
+          <ModuleCard
+            icon={<Brain className="w-5 h-5" />}
+            title="AI 助手"
+            desc="智能对话 / 代码生成 / 任务编排"
+            gradient="from-blue-500 to-cyan-500"
+            onClick={() => navigate("/agent")}
           />
         </div>
       </div>

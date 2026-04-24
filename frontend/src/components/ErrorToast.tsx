@@ -68,7 +68,7 @@ function ErrorItem({
         onClick={() => onDismiss(error.id)}
         className="shrink-0 p-0.5 rounded hover:bg-black/5 dark:hover:bg-white/10"
       >
-        <X className="w-4 h-4 text-gray-400" />
+        <X className="w-4 h-4 text-gray-400 dark:text-gray-500" />
       </button>
     </div>
   );

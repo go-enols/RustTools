@@ -366,6 +366,7 @@ impl UvManager {
                     "opencv-python".to_string(),
                     "numpy".to_string(),
                     "pillow".to_string(),
+                    "ultralytics".to_string(),
                 ],
                 description: "macOS CPU 模式（Apple Silicon 自动使用 MPS 加速）".to_string(),
                 is_gpu: false,
@@ -386,6 +387,7 @@ impl UvManager {
                     "opencv-python".to_string(),
                     "numpy".to_string(),
                     "pillow".to_string(),
+                    "ultralytics".to_string(),
                 ],
                 description: "CPU 模式（无 NVIDIA GPU  detected）".to_string(),
                 is_gpu: false,
@@ -413,6 +415,7 @@ impl UvManager {
                         "opencv-python".to_string(),
                         "numpy".to_string(),
                         "pillow".to_string(),
+                        "ultralytics".to_string(),
                     ],
                     description: format!("GPU 加速模式（CUDA {}）", cuda.runtime_version.clone().unwrap_or_default()),
                     is_gpu: true,
@@ -432,6 +435,7 @@ impl UvManager {
                         "opencv-python".to_string(),
                         "numpy".to_string(),
                         "pillow".to_string(),
+                        "ultralytics".to_string(),
                     ],
                     description: format!("GPU 模式（CUDA {}，部分兼容）", cuda.runtime_version.clone().unwrap_or_default()),
                     is_gpu: true,
@@ -451,6 +455,7 @@ impl UvManager {
                         "opencv-python".to_string(),
                         "numpy".to_string(),
                         "pillow".to_string(),
+                        "ultralytics".to_string(),
                     ],
                     description: "CPU 回退模式（CUDA 版本未知或不兼容）".to_string(),
                     is_gpu: false,
@@ -613,20 +618,41 @@ pub fn resolve_python_path() -> Option<String> {
     None
 }
 
-// Cache for the resolved python path
+// Cache for the resolved python path (using RefCell so we can clear it)
 thread_local! {
-    static RESOLVED_PYTHON: std::cell::OnceCell<String> = std::cell::OnceCell::new();
+    static RESOLVED_PYTHON: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 }
 
 /// Get the cached resolved python path, or resolve and cache it
 pub fn resolved_python() -> Option<String> {
-    RESOLVED_PYTHON.with(|cell| cell.get().cloned()).or_else(|| {
-        let path = resolve_python_path();
-        if let Some(ref p) = path {
-            RESOLVED_PYTHON.with(|cell| { let _ = cell.set(p.clone()); });
-        }
-        path
-    })
+    let cached = RESOLVED_PYTHON.with(|cell| cell.borrow().clone());
+    if let Some(path) = cached {
+        return Some(path);
+    }
+    let path = resolve_python_path();
+    if let Some(ref p) = path {
+        RESOLVED_PYTHON.with(|cell| { *cell.borrow_mut() = Some(p.clone()); });
+    }
+    path
+}
+
+/// Clear the thread-local cached python path on the current thread.
+/// Call this after installing/changing the Python environment so that
+/// subsequent calls to `resolved_python()` re-resolve the path.
+pub fn clear_resolved_python_cache() {
+    RESOLVED_PYTHON.with(|cell| { *cell.borrow_mut() = None; });
+}
+
+/// Resolve the managed uv venv python path directly, bypassing any cache.
+/// Returns None if the managed venv does not exist or its python is not executable.
+pub fn resolve_managed_python() -> Option<String> {
+    let manager = UvManager::new();
+    let path = manager.python_path()?;
+    if Command::new(path).arg("--version").output().ok()?.status.success() {
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    }
 }
 
 /// Check if conda/mamba environment is active
