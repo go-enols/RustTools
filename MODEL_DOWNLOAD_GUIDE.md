@@ -59,4 +59,4 @@ YOLOv8的ONNX模型不再在GitHub assets仓库中。建议：
 1. 访问 https://github.com/ultralytics/assets/releases
 2. 查找 v8.4.0 或更高版本
 3. 下载 yolo11n.onnx 等文件
-4. 保存到 `~/.cache/rust-tools/models/` 目录
+4. 保存到 `~/.cache/ultralytics/` 目录
