@@ -1,4 +1,0 @@
-# 可用的YOLO模型URL
-# 格式: 模型名称, URL, 大小(MB)
-
-yolo11n|https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.onnx|10.42
