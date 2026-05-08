@@ -1,8 +1,8 @@
 use super::provider::*;
 use async_trait::async_trait;
 use eventsource_stream::Eventsource;
-use futures::stream::{BoxStream, StreamExt};
-use futures::future;
+use futures_util::stream::{BoxStream, StreamExt};
+use futures_util::future;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;

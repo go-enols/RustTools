@@ -1,6 +1,6 @@
 use super::provider::*;
 use async_trait::async_trait;
-use futures::stream::{BoxStream, StreamExt};
+use futures_util::stream::{BoxStream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -372,13 +372,13 @@ impl LLMProvider for OllamaProvider {
                 })
             })
             .flat_map(|result| {
-                futures::stream::iter(match result {
+                futures_util::stream::iter(match result {
                     Ok(chunks) => chunks.into_iter().map(Ok).collect::<Vec<_>>(),
                     Err(e) => vec![Err(e)],
                 })
             })
             .filter(|item| {
-                futures::future::ready(
+                futures_util::future::ready(
                     !matches!(item, Ok(StreamChunk::Content { delta }) if delta.is_empty())
                 )
             });

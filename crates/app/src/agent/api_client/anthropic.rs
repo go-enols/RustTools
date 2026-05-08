@@ -1,6 +1,6 @@
 use super::provider::*;
 use async_trait::async_trait;
-use futures::stream::{BoxStream, StreamExt};
+use futures_util::stream::{BoxStream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -476,7 +476,7 @@ struct AnthropicStreamEvent {
 }
 
 // 将bytes_stream转换为eventsource_stream的辅助trait
-use futures::Stream;
+use futures_util::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
