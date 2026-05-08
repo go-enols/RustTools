@@ -443,7 +443,10 @@ async fn list_recursive(
         ));
 
         if is_dir {
-            let sub_entries = Box::pin(list_recursive(&entry.path(), base, allowed)).await?;
+            let sub_path = entry.path();
+            // Check subdirectory is allowed before recursing
+            check_path_allowed(&sub_path, allowed)?;
+            let sub_entries = Box::pin(list_recursive(&sub_path, base, allowed)).await?;
             entries.extend(sub_entries);
         }
     }
