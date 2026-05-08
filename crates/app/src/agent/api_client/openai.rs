@@ -450,14 +450,17 @@ struct OpenAIMessage {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[allow(dead_code)]
     #[serde(default)]
     role: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIToolCall {
+    #[allow(dead_code)]
     id: String,
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     call_type: String,
     function: OpenAIFunctionCall,
 }
@@ -482,6 +485,7 @@ struct OpenAIError {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIStreamChunk {
+    #[allow(dead_code)]
     id: String,
     choices: Vec<OpenAIStreamChoice>,
 }
@@ -497,14 +501,18 @@ struct OpenAIDelta {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OpenAIStreamToolCall>>,
+    #[allow(dead_code)]
     role: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIStreamToolCall {
+    #[allow(dead_code)]
     index: u32,
+    #[allow(dead_code)]
     id: Option<String>,
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     call_type: Option<String>,
     function: Option<OpenAIStreamFunction>,
 }

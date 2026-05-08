@@ -8,8 +8,7 @@ use super::orchestrator::{StepRecord, TaskResult, ToolCallRecord};
 use super::planner::{Plan, PlanStep, PlannedToolCall, PlanningStrategy};
 use super::session::Session;
 use super::super::api_client::UnifiedClient;
-use super::super::tools::{Tool, ToolRegistry};
-use serde_json::Value;
+use super::super::tools::ToolRegistry;
 
 // ============================================================================
 // 执行器错误
@@ -68,7 +67,7 @@ impl Executor {
         let start_time = std::time::Instant::now();
         let mut steps_executed: Vec<StepRecord> = Vec::new();
         let mut tool_calls: Vec<ToolCallRecord> = Vec::new();
-        let mut final_response = String::new();
+        let final_response;
 
         // 根据策略选择执行方式
         match plan.strategy {
@@ -336,24 +335,6 @@ impl Executor {
         });
 
         Ok(format!("[{}] {}", planned.tool_name, result.content))
-    }
-
-    /// 收集步骤中的工具调用future
-    fn collect_tool_futures(
-        &self,
-        step: &PlanStep,
-        _registry: &ToolRegistry,
-    ) -> Vec<(String, Value, String)> {
-        step.tool_calls
-            .iter()
-            .map(|tc| {
-                (
-                    tc.tool_name.clone(),
-                    tc.parameters.clone(),
-                    tc.purpose.clone(),
-                )
-            })
-            .collect()
     }
 }
 

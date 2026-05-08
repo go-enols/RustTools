@@ -464,6 +464,7 @@ struct AnthropicStreamDelta {
 struct AnthropicDeltaContent {
     #[serde(default)]
     text: Option<String>,
+    #[allow(dead_code)]
     #[serde(default)]
     content_type: Option<String>,
 }

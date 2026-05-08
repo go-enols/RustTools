@@ -4,7 +4,7 @@ use super::{
     ollama::OllamaProvider, openai::OpenAIProvider,
 };
 use crate::agent::config::{ModelConfig, ProviderType as ConfigProviderType, TaskCondition};
-use futures_util::stream::{BoxStream, StreamExt};
+use futures_util::stream::BoxStream;
 use std::collections::HashMap;
 
 /// UnifiedClient —— 统一的LLM调用入口

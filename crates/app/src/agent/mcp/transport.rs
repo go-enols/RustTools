@@ -52,11 +52,14 @@ pub struct StdioTransport {
     /// 标准输出读取器 (按行缓冲)
     stdout_lines: Lines<BufReader<ChildStdout>>,
     /// 请求ID计数器
+    #[allow(dead_code)]
     request_counter: AtomicU64,
     /// 挂起的请求 — 等待响应的 oneshot channel
     pending_requests: Arc<TokioMutex<HashMap<u64, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
     /// 后台读取任务句柄
     reader_handle: Option<tokio::task::JoinHandle<()>>,
+    /// 后台 stderr 读取任务句柄
+    stderr_handle: Option<tokio::task::JoinHandle<()>>,
     /// 连接状态
     connected: Arc<AtomicU64>, // 用原子标记: 1=connected, 0=disconnected
 }
@@ -87,7 +90,7 @@ impl StdioTransport {
         cmd.args(args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::piped());
 
         // 设置额外环境变量
         for (k, v) in env {
@@ -106,9 +109,28 @@ impl StdioTransport {
             .stdout
             .take()
             .ok_or_else(|| McpError::transport("无法获取子进程stdout"))?;
+        let stderr = process
+            .stderr
+            .take()
+            .ok_or_else(|| McpError::transport("无法获取子进程stderr"))?;
 
         let stdin = BufWriter::new(stdin);
         let stdout_lines = BufReader::new(stdout).lines();
+
+        // 启动 stderr 读取任务用于诊断
+        let stderr_handle = tokio::spawn(async move {
+            let mut stderr_reader = BufReader::new(stderr);
+            let mut buffer = String::new();
+            while let Ok(n) = stderr_reader.read_line(&mut buffer).await {
+                if n == 0 {
+                    break;
+                }
+                if !buffer.trim().is_empty() {
+                    log::warn!("[MCP stderr] {}", buffer.trim());
+                }
+                buffer.clear();
+            }
+        });
 
         let pending_requests = Arc::new(TokioMutex::new(HashMap::<
             u64,

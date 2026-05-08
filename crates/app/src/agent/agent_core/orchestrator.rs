@@ -75,7 +75,8 @@ pub struct Orchestrator {
     active_sessions: RwLock<HashMap<String, Session>>,
     /// 工具注册中心
     tool_registry: ToolRegistry,
-    /// MCP管理器
+    /// MCP管理器 (预留，暂未使用)
+    #[allow(dead_code)]
     mcp_manager: Arc<McpManager>,
     /// 配置管理器
     config_manager: Arc<ConfigManager>,
@@ -299,27 +300,6 @@ impl Orchestrator {
     /// 获取工具注册中心
     pub fn tool_registry(&self) -> &ToolRegistry {
         &self.tool_registry
-    }
-}
-
-// ============================================================================
-// UUID生成辅助
-// ============================================================================
-
-mod uuid {
-    /// 简单的UUID生成（v4风格随机ID）
-    pub fn new_v4() -> String {
-        use rand::Rng;
-        let mut rng = rand::rng();
-        let bytes: [u8; 16] = rng.random();
-        format!(
-            "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5],
-            bytes[6], bytes[7],
-            bytes[8], bytes[9],
-            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
-        )
     }
 }
 

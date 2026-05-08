@@ -502,6 +502,7 @@ index-url = "{}"
     }
 
     /// Find pyproject.toml by checking multiple locations
+    #[cfg(test)]
     fn find_pyproject_toml() -> Option<PathBuf> {
         // Try current working directory
         let cwd_pyproject = PathBuf::from("pyproject.toml");

@@ -453,6 +453,7 @@ struct OllamaChatResponse {
 
 #[derive(Debug, Deserialize)]
 struct OllamaMessage {
+    #[allow(dead_code)]
     role: String,
     content: Option<String>,
     #[serde(default)]

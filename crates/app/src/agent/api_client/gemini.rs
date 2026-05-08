@@ -470,12 +470,14 @@ struct GeminiCandidate {
     content: GeminiContent,
     #[serde(default)]
     finish_reason: Option<String>,
+    #[allow(dead_code)]
     #[serde(default)]
     index: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 struct GeminiContent {
+    #[allow(dead_code)]
     #[serde(default)]
     role: Option<String>,
     parts: Vec<GeminiPart>,
@@ -506,6 +508,7 @@ struct GeminiUsageMetadata {
 struct GeminiError {
     code: String,
     message: String,
+    #[allow(dead_code)]
     status: Option<String>,
 }
 
