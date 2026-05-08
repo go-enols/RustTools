@@ -176,7 +176,7 @@ impl AnthropicProvider {
 
         if let Some(error) = resp.error {
             return Err(ApiError::ApiError {
-                status_code: error.error_type.parse().unwrap_or(400),
+                status_code: anthropic_error_type_to_status(&error.error_type),
                 message: error.message,
             });
         }
@@ -453,6 +453,18 @@ struct AnthropicError {
     #[serde(rename = "type")]
     error_type: String,
     message: String,
+}
+
+fn anthropic_error_type_to_status(error_type: &str) -> u16 {
+    match error_type {
+        "authentication_error" => 401,
+        "permission_error" => 403,
+        "not_found_error" => 404,
+        "rate_limit_error" => 429,
+        "api_error" | "internal_server_error" => 500,
+        "overloaded_error" => 529,
+        _ => 400,
+    }
 }
 
 #[derive(Debug, Deserialize)]

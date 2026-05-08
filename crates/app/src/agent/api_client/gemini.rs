@@ -191,7 +191,7 @@ impl GeminiProvider {
 
         if let Some(ref error) = resp.error {
             return Err(ApiError::ApiError {
-                status_code: error.code.parse().unwrap_or(400),
+                status_code: error.code,
                 message: error.message.clone(),
             });
         }
@@ -506,7 +506,8 @@ struct GeminiUsageMetadata {
 
 #[derive(Debug, Deserialize)]
 struct GeminiError {
-    code: String,
+    #[serde(default)]
+    code: u16,
     message: String,
     #[allow(dead_code)]
     status: Option<String>,

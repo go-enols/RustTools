@@ -4,6 +4,13 @@ use futures_util::stream::{BoxStream, StreamExt};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TOOL_CALL_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_tool_call_id(name: &str) -> String {
+    format!("call_{}_{}", name, TOOL_CALL_COUNTER.fetch_add(1, Ordering::Relaxed))
+}
 
 /// Ollama本地模型 Provider
 pub struct OllamaProvider {
@@ -184,7 +191,7 @@ impl OllamaProvider {
                 calls
                     .iter()
                     .map(|call| ToolCall {
-                        id: format!("call_{}", call.function.name),
+                        id: next_tool_call_id(&call.function.name),
                         call_type: "function".to_string(),
                         function: FunctionCall {
                             name: call.function.name.clone(),
