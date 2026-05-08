@@ -59,6 +59,7 @@ pub struct StdioTransport {
     /// 后台读取任务句柄
     reader_handle: Option<tokio::task::JoinHandle<()>>,
     /// 后台 stderr 读取任务句柄
+    #[allow(dead_code)]
     stderr_handle: Option<tokio::task::JoinHandle<()>>,
     /// 连接状态
     connected: Arc<AtomicU64>, // 用原子标记: 1=connected, 0=disconnected
