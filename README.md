@@ -76,7 +76,7 @@ cargo tauri build
 ### 单文件部署（优化构建）
 
 ```bash
-# 构建最小化单文件二进制（~14MB，比默认 40MB 减少 65%）
+# 构建最小化单文件二进制（~13MB，比默认 40MB 减少 67%）
 ./build-single-file.sh
 
 # 可选：使用 UPX 进一步压缩
