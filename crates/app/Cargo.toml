@@ -38,7 +38,6 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 
 # Screen capture
 scrap = "0.2"
-xcap = "0.1"
 
 # ONNX inference
 tract-onnx = "0.22.0"
