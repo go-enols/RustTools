@@ -490,7 +490,7 @@ pub fn scan_project(project_path: &str) -> crate::models::ProjectScanResult {
         result.train_images = entries.flatten().filter(|e| {
             e.path().extension().map(|ext| {
                 let ext = ext.to_string_lossy().to_lowercase();
-                matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp")
+                matches!(ext.as_str(), "jpg" | "jpeg" | "png")
             }).unwrap_or(false)
         }).count();
     }
@@ -501,7 +501,7 @@ pub fn scan_project(project_path: &str) -> crate::models::ProjectScanResult {
         result.val_images = entries.flatten().filter(|e| {
             e.path().extension().map(|ext| {
                 let ext = ext.to_string_lossy().to_lowercase();
-                matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp")
+                matches!(ext.as_str(), "jpg" | "jpeg" | "png")
             }).unwrap_or(false)
         }).count();
     }

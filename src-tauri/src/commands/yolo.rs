@@ -558,7 +558,7 @@ pub fn list_images(folder: String, recursive: Option<bool>) -> Result<Vec<String
             if p.is_file() {
                 if let Some(ext) = p.extension() {
                     let ext = ext.to_string_lossy().to_lowercase();
-                    if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp") {
+                    if matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
                         images.push(p.to_string_lossy().to_string());
                     }
                 }
@@ -578,7 +578,7 @@ pub fn list_images(folder: String, recursive: Option<bool>) -> Result<Vec<String
             if p.is_file() {
                 if let Some(ext) = p.extension() {
                     let ext = ext.to_string_lossy().to_lowercase();
-                    if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "webp") {
+                    if matches!(ext.as_str(), "jpg" | "jpeg" | "png") {
                         images.push(p.to_string_lossy().to_string());
                     }
                 }
