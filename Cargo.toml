@@ -16,6 +16,8 @@ codegen-units = 1
 panic = "abort"
 strip = true
 overflow-checks = false
+split-debuginfo = "off"
+debug = 0
 
 [profile.release-small]
 inherits = "release"
@@ -25,3 +27,5 @@ codegen-units = 1
 panic = "abort"
 strip = true
 overflow-checks = false
+split-debuginfo = "off"
+debug = 0
