@@ -450,6 +450,7 @@ struct OpenAIMessage {
     content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[serde(default)]
     role: String,
 }
 
