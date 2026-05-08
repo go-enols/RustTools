@@ -152,6 +152,7 @@ impl StdioTransport {
             request_counter: AtomicU64::new(1),
             pending_requests,
             reader_handle: Some(reader_handle),
+            stderr_handle: Some(stderr_handle),
             connected,
         })
     }
