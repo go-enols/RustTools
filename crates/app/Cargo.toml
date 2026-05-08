@@ -46,7 +46,6 @@ tract-onnx = "0.22.0"
 
 # Concurrency
 parking_lot = { version = "0.12", features = ["send_guard"] }
-rayon = "1.8"
 
 # Error handling
 anyhow = "1.0"

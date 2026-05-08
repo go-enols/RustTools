@@ -3649,7 +3649,6 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "rand 0.9.4",
- "rayon",
  "regex",
  "reqwest 0.12.28",
  "scrap",
