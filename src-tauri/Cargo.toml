@@ -28,7 +28,6 @@ rusttools-app = { path = "../crates/app" }
 tauri-plugin-dialog = "2.7.0"
 image = "0.25"
 base64 = "0.22"
-xcap = "0.1"
 scrap = "0.2"
 sysinfo = "0.33"
 tauri-plugin-shell = "2"
