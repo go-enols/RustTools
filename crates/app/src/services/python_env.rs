@@ -337,15 +337,6 @@ impl UvManager {
         self.install_with_plan(&plan, on_progress).await
     }
 
-    /// Check if NVIDIA GPU is available
-    fn check_nvidia_gpu() -> bool {
-        Command::new("nvidia-smi")
-            .arg("-L")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-
     /// 生成安装方案（CUDA 感知）
     pub fn generate_install_plan(mirror: MirrorSource) -> InstallPlan {
         use crate::services::env::detect_cuda;

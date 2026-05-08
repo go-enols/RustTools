@@ -4,7 +4,7 @@ use eventsource_stream::Eventsource;
 use futures_util::stream::{BoxStream, StreamExt};
 use futures_util::future;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 /// OpenAI格式Provider —— 支持OpenAI、Azure、DeepSeek、Moonshot、通义千问等

@@ -17,7 +17,6 @@ pub use terminal::TerminalTool;
 pub use code_edit::{CodeEditTool, CodeReplaceTool};
 pub use search::SearchTool;
 
-use serde_json::Value;
 
 /// 创建默认工具集
 ///

@@ -136,7 +136,7 @@ impl StdioTransport {
 
     /// 后台读取循环 — 从stdout读取JSON-RPC响应行并分发给等待的请求
     async fn reader_loop(
-        pending: Arc<TokioMutex<HashMap<u64, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        _pending: Arc<TokioMutex<HashMap<u64, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
         connected: Arc<AtomicU64>,
     ) {
         // 由于 stdout_lines 的所有权在 StdioTransport 中，
@@ -223,7 +223,7 @@ impl McpTransport for StdioTransport {
 
             // 先检查是否已有响应被reader收到
             {
-                let mut pending = self.pending_requests.lock().await;
+                let pending = self.pending_requests.lock().await;
                 if !pending.contains_key(&id) {
                     // 响应已经被某个reader处理并从map中移除？
                     // 实际上这里需要更复杂的机制。简化处理：

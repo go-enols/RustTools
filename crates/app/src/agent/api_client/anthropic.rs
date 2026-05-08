@@ -2,7 +2,7 @@ use super::provider::*;
 use async_trait::async_trait;
 use futures_util::stream::{BoxStream, StreamExt};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 /// Anthropic Messages API Provider —— 支持Claude系列模型
@@ -511,7 +511,6 @@ impl<S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin> Stream for 
 
                     Poll::Ready(Some(Ok(AnthropicStreamEvent { event, data })))
                 } else {
-                    cx.waker().wake_by_ref();
                     Poll::Pending
                 }
             }

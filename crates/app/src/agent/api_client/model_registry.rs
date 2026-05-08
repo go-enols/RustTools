@@ -1,4 +1,3 @@
-use super::provider::ProviderType;
 use std::collections::HashMap;
 
 /// 模型能力信息

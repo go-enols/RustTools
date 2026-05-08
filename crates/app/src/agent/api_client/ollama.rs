@@ -2,7 +2,7 @@ use super::provider::*;
 use async_trait::async_trait;
 use futures_util::stream::{BoxStream, StreamExt};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 
 /// Ollama本地模型 Provider

@@ -7,8 +7,8 @@ use super::agent::AgentError;
 use super::orchestrator::{StepRecord, TaskResult, ToolCallRecord};
 use super::planner::{Plan, PlanStep, PlannedToolCall, PlanningStrategy};
 use super::session::Session;
-use super::super::api_client::{ChatMessage, ChatRequest, ChatResponse, ToolCall, UnifiedClient};
-use super::super::tools::{Tool, ToolDefinition, ToolError, ToolRegistry, ToolResult};
+use super::super::api_client::UnifiedClient;
+use super::super::tools::{Tool, ToolRegistry};
 use serde_json::Value;
 
 // ============================================================================
@@ -217,7 +217,7 @@ impl Executor {
     /// 自适应执行计划步骤
     async fn execute_adaptive(
         &self,
-        mut plan: Plan,
+        plan: Plan,
         session: &mut Session,
         client: &UnifiedClient,
         registry: &ToolRegistry,

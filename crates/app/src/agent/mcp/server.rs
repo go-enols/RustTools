@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::agent::api_client::UnifiedClient;
-use crate::agent::config::models::{McpServerConfig, McpTransportType};
+use crate::agent::config::models::McpServerConfig;
 use crate::agent::config::ConfigManager;
 use crate::agent::tools::tool::ToolDefinition;
 use crate::agent::{McpError, McpServerInfo, ServerStatus};
