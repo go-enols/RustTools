@@ -173,9 +173,10 @@ impl ConfigManager {
                 }
                 // 检查max约束：任务必须小于等于规则max
                 if let Some(rule_max) = rule_size.max {
-                    let task_estimate = task_size.max.unwrap_or(usize::MAX);
-                    if task_estimate > rule_max {
-                        return false;
+                    if let Some(task_max) = task_size.max {
+                        if task_max > rule_max {
+                            return false;
+                        }
                     }
                 }
             }
