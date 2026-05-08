@@ -1,0 +1,61 @@
+name: Release Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Build Linux (release-small)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Build release-small
+        run: cargo build --profile release-small --bin rusttools-tauri
+
+      - name: Show binary info
+        run: |
+          ls -lh target/release-small/rusttools-tauri
+          file target/release-small/rusttools-tauri
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rusttools-linux-x64
+          path: target/release-small/rusttools-tauri
+
+  build-macos:
+    name: Build macOS (release-small)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release-small
+        run: cargo build --profile release-small --bin rusttools-tauri
+
+      - name: Show binary info
+        run: |
+          ls -lh target/release-small/rusttools-tauri
+          file target/release-small/rusttools-tauri
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rusttools-macos
+          path: target/release-small/rusttools-tauri
