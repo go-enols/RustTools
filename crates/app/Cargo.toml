@@ -36,9 +36,6 @@ base64 = "0.22"
 # Image processing
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
-# Screen capture
-scrap = "0.2"
-
 # ONNX inference
 tract-onnx = "0.22.0"
 
