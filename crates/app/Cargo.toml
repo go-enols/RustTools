@@ -13,7 +13,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 # Async runtime
-tokio = { version = "1", features = ["sync", "time", "process", "io-util", "macros", "rt-multi-thread"] }
+tokio = { version = "1", default-features = false, features = ["sync", "time", "process", "io-util", "macros", "rt-multi-thread", "fs"] }
 tokio-stream = "0.1"
 
 # Serialization
