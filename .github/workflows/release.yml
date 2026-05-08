@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.github/workflows/ci.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,6 +26,11 @@ jobs:
 
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
 
       - name: Install dependencies
         run: |
@@ -54,24 +63,55 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Build release-small
-        env:
-          CARGO_TERM_COLOR: always
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: "sccache"
-          CARGO_INCREMENTAL: "0"
         run: cargo build --profile release-small --bin rusttools-tauri
 
       - name: Compress binary
         run: |
-          zstd -19 --rm target/release-small/rusttools-tauri -o rusttools-macos.zst
-          ls -lh rusttools-macos.zst
+          zstd -19 --rm target/release-small/rusttools-tauri -o rusttools-macos-arm64.zst
+          ls -lh rusttools-macos-arm64.zst
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rusttools-macos
-          path: rusttools-macos.zst
+          name: rusttools-macos-arm64
+          path: rusttools-macos-arm64.zst
+
+  build-macos-intel:
+    name: Build macOS Intel (release-small)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Build release-small
+        run: cargo build --profile release-small --bin rusttools-tauri
+
+      - name: Compress binary
+        run: |
+          zstd -19 --rm target/release-small/rusttools-tauri -o rusttools-macos-x64.zst
+          ls -lh rusttools-macos-x64.zst
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rusttools-macos-x64
+          path: rusttools-macos-x64.zst
 
   build-windows:
     name: Build Windows (release-small)
@@ -85,15 +125,16 @@ jobs:
       - name: Install sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Build release-small
-        env:
-          CARGO_TERM_COLOR: always
-          SCCACHE_GHA_ENABLED: "true"
-          RUSTC_WRAPPER: "sccache"
-          CARGO_INCREMENTAL: "0"
         run: cargo build --profile release-small --bin rusttools-tauri
 
       - name: Compress binary
+        shell: pwsh
         run: |
           7z a -tzip -mx=9 rusttools-windows-x64.zip target/release-small/rusttools-tauri.exe
           ls -lh rusttools-windows-x64.zip
@@ -103,3 +144,25 @@ jobs:
         with:
           name: rusttools-windows-x64
           path: rusttools-windows-x64.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-linux, build-macos, build-macos-intel, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*.zst
+          files: artifacts/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
