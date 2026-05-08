@@ -74,12 +74,11 @@ pub fn get_device_info() -> Result<DeviceInfo, String> {
         cuda_available: cuda.available,
     }).collect();
 
-    let mut sys = System::new_with_specifics(
+    let sys = System::new_with_specifics(
         RefreshKind::nothing()
             .with_cpu(CpuRefreshKind::everything())
             .with_memory(MemoryRefreshKind::everything()),
     );
-    sys.refresh_all();
 
     let cpu_model = sys.cpus().first()
         .map(|cpu| cpu.brand().to_string())

@@ -365,29 +365,38 @@ pub fn auto_annotate_image(
 
     // Try ONNX fast path first
     if model_path.to_lowercase().ends_with(".onnx") {
-        if let Ok(mut engine) = rusttools_app::services::yolo_onnx::YoloOnnxEngine::new(&model_path) {
-            engine.set_conf_threshold(threshold);
-            let image = image::open(&image_path)
-                .map_err(|e| format!("Failed to open image: {}", e))?;
-            let detections = engine.infer(&image)
-                .map_err(|e| format!("ONNX inference failed: {}", e))?;
-            let img_w = image.width() as f64;
-            let img_h = image.height() as f64;
-
-            return Ok(detections.into_iter().map(|det| {
-                let x_center = ((det.x1 + det.x2) as f64 / 2.0) / img_w;
-                let y_center = ((det.y1 + det.y2) as f64 / 2.0) / img_h;
-                let width = ((det.x2 - det.x1).abs() as f64) / img_w;
-                let height = ((det.y2 - det.y1).abs() as f64) / img_h;
-                YoloAnnotation {
-                    class_id: det.class_id,
-                    x_center: x_center.clamp(0.0, 1.0),
-                    y_center: y_center.clamp(0.0, 1.0),
-                    width: width.clamp(0.0, 1.0),
-                    height: height.clamp(0.0, 1.0),
+        match rusttools_app::services::yolo_onnx::YoloOnnxEngine::new(&model_path) {
+            Ok(mut engine) => {
+                engine.set_conf_threshold(threshold);
+                match image::open(&image_path) {
+                    Ok(image) => {
+                        match engine.infer(&image) {
+                            Ok(detections) => {
+                                let img_w = image.width() as f64;
+                                let img_h = image.height() as f64;
+                                return Ok(detections.into_iter().map(|det| {
+                                    let x_center = ((det.x1 + det.x2) as f64 / 2.0) / img_w;
+                                    let y_center = ((det.y1 + det.y2) as f64 / 2.0) / img_h;
+                                    let width = ((det.x2 - det.x1).abs() as f64) / img_w;
+                                    let height = ((det.y2 - det.y1).abs() as f64) / img_h;
+                                    YoloAnnotation {
+                                        class_id: det.class_id,
+                                        x_center: x_center.clamp(0.0, 1.0),
+                                        y_center: y_center.clamp(0.0, 1.0),
+                                        width: width.clamp(0.0, 1.0),
+                                        height: height.clamp(0.0, 1.0),
+                                    }
+                                }).collect());
+                            }
+                            Err(e) => log::warn!("ONNX inference failed for {}: {}", image_path, e),
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to open image {}: {}", image_path, e),
                 }
-            }).collect());
+            }
+            Err(e) => log::warn!("Failed to load ONNX model {}: {}", model_path, e),
         }
+        // Fall through to Python fallback
     }
 
     // Fallback to Python (supports .pt and .onnx via ultralytics)
@@ -555,6 +564,10 @@ pub fn list_images(folder: String, recursive: Option<bool>) -> Result<Vec<String
         let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
         for entry in entries.flatten() {
             let p = entry.path();
+            // Skip symlinks to avoid infinite loops with circular links
+            if p.is_symlink() {
+                continue;
+            }
             if p.is_file() {
                 if let Some(ext) = p.extension() {
                     let ext = ext.to_string_lossy().to_lowercase();
