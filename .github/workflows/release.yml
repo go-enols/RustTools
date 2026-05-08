@@ -26,16 +26,16 @@ jobs:
       - name: Build release-small
         run: cargo build --profile release-small --bin rusttools-tauri
 
-      - name: Show binary info
+      - name: Compress binary
         run: |
-          ls -lh target/release-small/rusttools-tauri
-          file target/release-small/rusttools-tauri
+          zstd -19 --rm target/release-small/rusttools-tauri -o rusttools-linux-x64.zst
+          ls -lh rusttools-linux-x64.zst
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rusttools-linux-x64
-          path: target/release-small/rusttools-tauri
+          path: rusttools-linux-x64.zst
 
   build-macos:
     name: Build macOS (release-small)
@@ -49,13 +49,36 @@ jobs:
       - name: Build release-small
         run: cargo build --profile release-small --bin rusttools-tauri
 
-      - name: Show binary info
+      - name: Compress binary
         run: |
-          ls -lh target/release-small/rusttools-tauri
-          file target/release-small/rusttools-tauri
+          zstd -19 --rm target/release-small/rusttools-tauri -o rusttools-macos.zst
+          ls -lh rusttools-macos.zst
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rusttools-macos
-          path: target/release-small/rusttools-tauri
+          path: rusttools-macos.zst
+
+  build-windows:
+    name: Build Windows (release-small)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build release-small
+        run: cargo build --profile release-small --bin rusttools-tauri
+
+      - name: Compress binary
+        run: |
+          7z a -tzip -mx=9 rusttools-windows-x64.zip target/release-small/rusttools-tauri.exe
+          ls -lh rusttools-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rusttools-windows-x64
+          path: rusttools-windows-x64.zip
