@@ -51,7 +51,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Build release-small
+        env:
+          CARGO_TERM_COLOR: always
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          CARGO_INCREMENTAL: "0"
         run: cargo build --profile release-small --bin rusttools-tauri
 
       - name: Compress binary
@@ -74,7 +82,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Build release-small
+        env:
+          CARGO_TERM_COLOR: always
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          CARGO_INCREMENTAL: "0"
         run: cargo build --profile release-small --bin rusttools-tauri
 
       - name: Compress binary
