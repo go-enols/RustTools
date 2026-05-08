@@ -15,6 +15,7 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+overflow-checks = false
 
 [profile.release-small]
 inherits = "release"
@@ -23,3 +24,4 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+overflow-checks = false
