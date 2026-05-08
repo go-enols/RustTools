@@ -1,0 +1,10 @@
+[build]
+# Use lld linker for faster linking (if available)
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[registries.crates-io]
+protocol = "sparse"
+
+[profile.release-small]
+# Inherits from workspace Cargo.toml
+# Ensures the profile is available for sub-crate builds
