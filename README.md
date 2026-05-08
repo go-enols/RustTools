@@ -73,6 +73,19 @@ cd frontend && npm run build
 cargo tauri build
 ```
 
+### 单文件部署（优化构建）
+
+```bash
+# 构建最小化单文件二进制（~14MB，比默认 40MB 减少 65%）
+./build-single-file.sh
+
+# 可选：使用 UPX 进一步压缩
+./compress.sh
+
+# 构建产物
+ls -lh target/release-small/rusttools-tauri
+```
+
 ### 测试
 
 ```bash
