@@ -354,7 +354,11 @@ impl LLMProvider for GeminiProvider {
                     let mut deltas: Vec<Result<StreamChunk, ApiError>> = Vec::new();
 
                     for line in text.lines() {
-                        let line = line.trim().trim_start_matches(',').trim_start_matches('[').trim_end_matches(']');
+                        let line = line.trim();
+                        // Only remove leading/trailing characters once, not greedily
+                        let line = line.strip_prefix(',').unwrap_or(line);
+                        let line = line.strip_prefix('[').unwrap_or(line);
+                        let line = line.strip_suffix(']').unwrap_or(line);
                         if line.is_empty() {
                             continue;
                         }
