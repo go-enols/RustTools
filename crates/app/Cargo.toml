@@ -9,7 +9,7 @@ description = "RustTools - YOLO training and inference tool"
 
 [lib]
 name = "rusttools_app"
-crate-type = ["rlib", "staticlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 # Async runtime
